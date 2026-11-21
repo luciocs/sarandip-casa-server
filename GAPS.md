@@ -11,7 +11,7 @@ Internal notes for this package. Not required in a public README. Status after t
 5. **Prompt e textos genéricos.** `ASSISTANT_NAME` padrão `Sarandip`, `DEVICE_KIND`, `source` no payload, `user-agent` `sarandip-casa`, prompts em `en` e `pt-BR`.
 6. **Conectores.** Webhook aceita qualquer 2xx. `stub` e `off` mantidos. `openai` (OpenAI-compatible) e `anthropic` implementados e testados com fetch mockado. OpenClaw documentado como webhook genérico (sem cliente nativo).
 7. **`REPLY_SECRET` + `REPLY_SECRET_PREVIOUS`.** Aceita os dois durante a rotação. Decisão: **por dono** (um Worker), não por aparelho. Documentado em `PROTOCOL.md` e `AGENT.md`.
-8. **Como a rotina guarda o `REPLY_SECRET`.** Documentado que o valor nunca vai no texto. **Pendência:** confirmar o mecanismo suportado no Grok Bot para uma *routine* guardar o segredo sem pô-lo nas instruções. Não foi inventado um mecanismo.
+8. **Como a rotina autoriza o `/bloco/reply`.** Resolvido: `reply_url` leva um token de curta duração, assinado com HMAC-SHA256 de `REPLY_SECRET` sobre `turn_id.device_id.exp`, válido só para aquele turno e aparelho, até `REPLY_TTL_S`, e de uso único (estado do turno). O campo `reply_auth: "url"` indica que não é preciso cabeçalho. O Bearer com `REPLY_SECRET` continua aceito para outros agentes. Nada de segredo nas instruções da rotina.
 9. **`GET /v1/devices/status`.** Autenticado por token do aparelho ou por `ADMIN_TOKEN` + `device_id`. `online` = WS com `hello`.
 10. **`wrangler.example.toml`.** Neutro, sem `account_id`, sem URL pessoal, `name` `sarandip-casa`, `ELEVENLABS_VOICE_ID` vazio, `PUBLIC_BASE_URL` vazio (derivado da origem). `wrangler.toml` no `.gitignore`.
 11. **Botão Deploy to Cloudflare.** O README aponta para o repositório público `https://github.com/luciocs/sarandip-casa-server`. `wrangler.toml` continua no `.gitignore` (sem cópia neutra no repo), então o botão pode não ler `wrangler.example.toml` automaticamente; o caminho suportado é o setup manual ou o agente.
@@ -35,7 +35,7 @@ Pendente: medição de heap e teste na placa real (sem flash sem o Lucio).
 - [x] SPDX AGPL-3.0-only no server; Apache-2.0 em `PROTOCOL.md`. `NOTICE` e CLA (`docs/CLA.md`) prontos. Scanner no CI (gitleaks).
 - [x] Botão Deploy: decidido não versionar `wrangler.toml` (fica no `.gitignore`). O botão aponta para `luciocs/sarandip-casa-server`; setup manual ou agente usam `wrangler.example.toml`.
 - [x] `luciocs/jarvis-memory-demo` tornado público pelo Lucio (20/11/2026). Teste real sem token incluído.
-- [ ] Confirmar como a rotina do Grok Bot recebe o `REPLY_SECRET` sem texto.
+- [x] Autorização da rotina no `/bloco/reply` sem guardar `REPLY_SECRET` no texto: token de curta duração na `reply_url` (21/11/2026).
 - [ ] Mecanismo de assinatura do CLA (bot) depois que o repo for público.
 - [ ] Contacto de segurança definitivo.
 - [ ] A PROPOSTA em `arquitetura-casa` (fora deste pacote) ainda cita Wi-Fi "por Bluetooth ou app" no bloco antigo; a decisão vigente é o portal cativo. Atualizar a PROPOSTA é outro trabalho, e este pacote não edita `/workspace/bt-startup`.

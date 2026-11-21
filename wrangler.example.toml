@@ -36,6 +36,9 @@ TTS_LANGUAGE_CODE = "en"
 # OpenClaw and a Grok Bot routine both use "webhook".
 ROUTINE_PROVIDER = "off"
 ROUTINE_TIMEOUT_MS = "5000"
+# Optional. Default is Authorization: Bearer <WEBHOOK_TOKEN> (what a Grok Bot
+# routine webhook expects). Set to another header name to send the raw token in it.
+# WEBHOOK_AUTH_HEADER = "authorization"
 ACK_TEXT = "On it, I'll get back to you."
 ROUTINE_FAIL_TEXT = "I couldn't reach your agent just now."
 # If empty, derived from the request origin. Set it when a late-reply webhook

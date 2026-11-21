@@ -295,14 +295,14 @@ The webhook the Worker sends to the agent already has everything the agent needs
 {"text":"<transcript>","turn_id":"t_…","device_id":"dev_home01","spoken_at":"<ISO UTC>",
  "timezone":"UTC","local_date":"2026-11-20","weekday":"Friday","local_time":"22:40",
  "utc_offset":"+00:00","local_datetime":"Friday, 20 November 2026, 22:40",
- "source":"device","context":"pedido: …\nuser: …\nsarandip: …","reply_url":"https://<base>/bloco/reply"}
+ "source":"device","context":"pedido: …\nuser: …\nsarandip: …","reply_url":"https://<base>/bloco/reply?t=<token>","reply_auth":"url"}
 ```
 
 `source` is the `DEVICE_KIND` var (default `device`). Clock fields are computed at the moment of the turn, in the configured `TZ` and `LANGUAGE`. The agent should use them for "today", "tomorrow" and "now", without converting UTC.
 
 A webhook is accepted on **any HTTP 2xx**. The Grok Bot `success` / `runUuid` body is still fine, but it is no longer required.
 
-**Never put `REPLY_SECRET` in the agent's or routine's instruction text.** Store it in the agent's secret store (or an equivalent vault) and have the late-answer step read it from there. How a Grok Bot *routine* holds a secret without placing it in the routine text is still to be confirmed; until then, treat that as an open point and do not invent a mechanism.
+**Never put `REPLY_SECRET` in the agent's or routine's instruction text.** When `reply_auth` is `"url"`, `reply_url` already carries a short-lived, turn-scoped authorization, so the agent `POST`s that URL with the JSON body and no secret header. Agents that still use the Bearer header must read `REPLY_SECRET` from a secret store, never from instruction text.
 
 `PUBLIC_BASE_URL`, when empty, is derived from the request origin so `reply_url` still works.
 
@@ -343,7 +343,7 @@ Questions about a diary, themes or notes escalate straight to the agent (English
 
 | Value | Behaviour |
 |---|---|
-| `webhook` | `POST` `WEBHOOK_URL` with `Authorization: Bearer <WEBHOOK_TOKEN>`. Accepted on any HTTP 2xx. HTTPS only. This is also how a Grok Bot routine or OpenClaw webhook is connected. |
+| `webhook` | `POST` `WEBHOOK_URL` with `Authorization: Bearer <WEBHOOK_TOKEN>` by default (the header a Grok Bot routine webhook expects). If the optional var `WEBHOOK_AUTH_HEADER` is set to another header name, the raw token is sent in that header instead. Accepted on any HTTP 2xx. HTTPS only. This is also how a Grok Bot routine or OpenClaw webhook is connected. |
 | `openai` | OpenAI-compatible `POST {OPENAI_BASE_URL}/chat/completions` with `OPENAI_API_KEY`. The spoken answer is delivered as a late reply in `waitUntil`. |
 | `anthropic` | Anthropic `POST {ANTHROPIC_BASE_URL}/v1/messages` with `ANTHROPIC_API_KEY`. Same late-reply path. |
 | `stub` | Test double. |

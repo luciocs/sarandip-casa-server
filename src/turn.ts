@@ -10,6 +10,7 @@ import { getMemory, THEME_ASK, type MemoryStore, type MemoryResult } from "./mem
 import { localClock } from "./clock";
 import { parseWav, WavError, wavHeader, SR } from "./wav";
 import { publicBase } from "./config";
+import { signedReplyUrl } from "./auth";
 import { ackText, assistantName, deviceKind, failText } from "./i18n";
 import { hub } from "./hubref";
 
@@ -115,9 +116,10 @@ export async function handleTurn(req: Request, env: Env, ctx: ExecutionContext, 
 
   const turnId = newTurnId();
   const now = new Date();
+  const signed = await signedReplyUrl(env, publicBase(env.PUBLIC_BASE_URL, origin), turnId, deviceId, now.getTime());
   const payload = buildRoutinePayload({
     text, turnId, deviceId, pedido: fast.pedido, history,
-    replyUrl: `${publicBase(env.PUBLIC_BASE_URL, origin)}/bloco/reply`,
+    replyUrl: signed.reply_url, replyAuth: signed.reply_auth,
     clock: localClock(now, env.TZ, env.LANGUAGE), now,
     source: deviceKind(env), assistant: assistantName(env), language: env.LANGUAGE,
   });

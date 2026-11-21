@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Device, reply and admin auth. Tokens never logged. Comparison is constant time
-// over SHA-256 digests, so length and content of the secret do not leak.
+// over SHA-256 digests (and HMAC tags), so length and content of the secret do not leak.
 import type { Env } from "./env";
+import { num } from "./env";
 import { registry } from "./registryref";
 
 const enc = new TextEncoder();
@@ -85,15 +86,126 @@ export async function authDevice(req: Request, env: Env): Promise<string | null>
   return found;
 }
 
+function b64urlEncode(bytes: Uint8Array): string {
+  let bin = "";
+  for (const x of bytes) bin += String.fromCharCode(x);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function b64urlDecode(s: string): Uint8Array | null {
+  if (!s || !/^[A-Za-z0-9_-]+$/.test(s) || s.length > 128) return null;
+  const pad = s.length % 4 === 0 ? "" : "=".repeat(4 - (s.length % 4));
+  try {
+    const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/") + pad);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+async function hmacSha256(secret: string, message: string): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(message)));
+}
+
+function replySecrets(env: Env): string[] {
+  return [env.REPLY_SECRET ?? "", env.REPLY_SECRET_PREVIOUS ?? ""].filter((s) => s.length >= 16);
+}
+
+/**
+ * Turn-scoped reply token: base64url(HMAC-SHA256(secret, turn_id + "." + device_id + "." + exp)) + "." + exp.
+ * exp is Unix seconds, now + REPLY_TTL_S. Never log the token.
+ */
+export async function mintReplyToken(
+  env: Env,
+  turnId: string,
+  deviceId: string,
+  nowMs: number = Date.now(),
+  ttlS?: number,
+): Promise<string | null> {
+  const secret = env.REPLY_SECRET ?? "";
+  if (secret.length < 16) return null;
+  const ttl = ttlS ?? num(env.REPLY_TTL_S, 900);
+  const exp = Math.floor(nowMs / 1000) + ttl;
+  const mac = await hmacSha256(secret, `${turnId}.${deviceId}.${exp}`);
+  return `${b64urlEncode(mac)}.${exp}`;
+}
+
+export async function signedReplyUrl(
+  env: Env,
+  base: string,
+  turnId: string,
+  deviceId: string,
+  nowMs: number = Date.now(),
+): Promise<{ reply_url: string; reply_auth?: "url" }> {
+  const token = await mintReplyToken(env, turnId, deviceId, nowMs);
+  if (!token) return { reply_url: `${base}/bloco/reply` };
+  return { reply_url: `${base}/bloco/reply?t=${token}`, reply_auth: "url" };
+}
+
+/** Verify a `t` query token against the body's turn_id and device_id. Never log `token`. */
+export async function authReplyToken(
+  env: Env,
+  token: string,
+  turnId: string,
+  deviceId: string,
+  nowMs: number = Date.now(),
+): Promise<boolean> {
+  const dot = token.lastIndexOf(".");
+  if (dot <= 0 || dot === token.length - 1) return false;
+  const macB64 = token.slice(0, dot);
+  const expStr = token.slice(dot + 1);
+  if (!/^[0-9]{1,12}$/.test(expStr)) return false;
+  const exp = Number(expStr);
+  const mac = b64urlDecode(macB64);
+  if (!mac || mac.byteLength !== 32) return false;
+  const secrets = replySecrets(env);
+  if (!secrets.length) return false;
+  const msg = `${turnId}.${deviceId}.${exp}`;
+  let macOk = false;
+  // Always compare against every configured secret so timing does not reveal which one matched.
+  for (const s of secrets) {
+    if (safeEqual(mac, await hmacSha256(s, msg))) macOk = true;
+  }
+  if (!macOk) return false;
+  const nowSec = Math.floor(nowMs / 1000);
+  const ttl = num(env.REPLY_TTL_S, 900);
+  if (exp <= nowSec || exp > nowSec + ttl + 60) return false;
+  return true;
+}
+
 /**
  * Reply auth is per owner (one Worker, one secret pair), not per device.
- * During rotation both REPLY_SECRET and REPLY_SECRET_PREVIOUS are accepted.
+ * Accepts Authorization: Bearer REPLY_SECRET (or REPLY_SECRET_PREVIOUS during rotation),
+ * or a valid turn-scoped token in the `t` query parameter. The token must match the
+ * body's turn_id and device_id. Never log the token or the request URL.
  */
-export async function authReply(req: Request, env: Env): Promise<boolean> {
-  return matchBearer(req.headers.get("authorization") ?? "", [
-    env.REPLY_SECRET ?? "",
-    env.REPLY_SECRET_PREVIOUS ?? "",
-  ]);
+export async function authReply(
+  req: Request,
+  env: Env,
+  body?: { turn_id: string; device_id: string },
+  nowMs: number = Date.now(),
+): Promise<boolean> {
+  if (
+    await matchBearer(req.headers.get("authorization") ?? "", [
+      env.REPLY_SECRET ?? "",
+      env.REPLY_SECRET_PREVIOUS ?? "",
+    ])
+  ) {
+    return true;
+  }
+  if (!body) return false;
+  const token = new URL(req.url).searchParams.get("t") ?? "";
+  if (!token) return false;
+  return authReplyToken(env, token, body.turn_id, body.device_id, nowMs);
 }
 
 export async function authAdmin(req: Request, env: Env): Promise<boolean> {

@@ -50,7 +50,7 @@ Every step is **idempotent**: check the current state first, change only what is
 
 ## 4. Generate internal secrets locally (the owner never sees them)
 
-- **`REPLY_SECRET`:** at least 32 random bytes, encoded as base64url, generated locally (for example `node -e` with `crypto.randomBytes`). The endpoint stays closed if the secret is shorter than 16 characters. Pipe it straight into `npx wrangler secret put REPLY_SECRET`, without printing it. You will need the same value once more in step 7, so keep it only in the agent's secret store, never in a file in the repo, and never in routine or agent instruction text.
+- **`REPLY_SECRET`:** at least 32 random bytes, encoded as base64url, generated locally (for example `node -e` with `crypto.randomBytes`). The endpoint stays closed if the secret is shorter than 16 characters. Pipe it straight into `npx wrangler secret put REPLY_SECRET`, without printing it. The Worker uses it to sign turn-scoped `reply_url` tokens, so a Grok Bot routine does not need this value at all. Agents that still call `/bloco/reply` with a Bearer header must keep it only in their secret store, never in a file in the repo, and never in routine or agent instruction text.
 - **`ADMIN_TOKEN`:** the same kind of long random string. Pipe it into `npx wrangler secret put ADMIN_TOKEN`. You will use it to issue pairing codes and to read device status. Do not print it.
 - **Pairing (preferred way to deliver a device token):**
   1. Choose a `device_id` matching `^[A-Za-z0-9_-]{1,64}$`, for example `dev_home01`, or let the device use the id it already has (chip-derived).
@@ -103,13 +103,14 @@ The server forwards questions it cannot answer quickly to an agent. Skip this st
 The agent answers later with `POST <PUBLIC_BASE_URL or origin>/bloco/reply`.
 
 **Webhook request sent by the server** (`ROUTINE_PROVIDER = "webhook"`):
-- `POST <WEBHOOK_URL>` with `Authorization: Bearer <WEBHOOK_TOKEN>` and a JSON body.
-- The body has these fields: `text`, `turn_id`, `device_id`, `spoken_at` (ISO UTC), `timezone`, `local_date`, `weekday`, `local_time`, `utc_offset`, `local_datetime`, `source` (`DEVICE_KIND`), `context`, `reply_url`.
+- `POST <WEBHOOK_URL>` with `Authorization: Bearer <WEBHOOK_TOKEN>` and a JSON body. That is the header a Grok Bot routine webhook expects. If a different agent needs another header, set the optional var `WEBHOOK_AUTH_HEADER` to that header name; the Worker then sends the raw token in it.
+- The body has these fields: `text`, `turn_id`, `device_id`, `spoken_at` (ISO UTC), `timezone`, `local_date`, `weekday`, `local_time`, `utc_offset`, `local_datetime`, `source` (`DEVICE_KIND`), `context`, `reply_url`, and `reply_auth` (`"url"` when `reply_url` carries a turn-scoped token).
 - The webhook counts as accepted on **any HTTP 2xx**. Only the acknowledgement is awaited.
 
 **The agent's reply:**
-- `POST /bloco/reply` with `Authorization: Bearer <REPLY_SECRET>` and the body `{"turn_id":"t_…","device_id":"…","text":"<≤500 chars, plain spoken text>"}`.
-- The `turn_id` is valid for `REPLY_TTL_S` seconds.
+- `POST` the exact `reply_url` from the payload with the body `{"turn_id":"t_…","device_id":"…","text":"<≤500 chars, plain spoken text>"}`. When `reply_auth` is `"url"`, the URL already carries a short-lived token (`?t=…`) valid only for that turn and device; no `Authorization` header is needed.
+- Agents that do not use the signed URL may instead `POST /bloco/reply` with `Authorization: Bearer <REPLY_SECRET>`. During rotation, `REPLY_SECRET_PREVIOUS` is also accepted, including for tokens signed with the previous secret.
+- The `turn_id` (and the URL token) is valid for `REPLY_TTL_S` seconds, and a turn is delivered at most once.
 - Responses: `200 delivered`, `503 offline`, `409 muted` or `already_delivered`, `404 unknown_turn`, `410 expired`, `400` bad request, `502 tts_error`.
 
 ### 7a. Grok Bot routine (webhook)
@@ -119,9 +120,9 @@ The agent answers later with `POST <PUBLIC_BASE_URL or origin>/bloco/reply`.
    - read the JSON body;
    - answer `text` using the owner's tools and the provided local date and time;
    - keep the answer short, spoken-style and without markdown;
-   - send `POST reply_url` with `turn_id`, `device_id` and `text`, authenticated with the reply secret.
-3. **Never put any secret value in the routine instructions.** Give the routine the `REPLY_SECRET` through the agent's secret storage, not the prompt. (The exact supported way for a *routine* to hold a secret on Grok Bot is not confirmed in this repository; if you cannot give the routine a secret without putting it in the text, stop and tell the owner instead of inventing a workaround.)
-4. The routine panel shows the **webhook URL and key**. Ask the owner to paste them into protected fields, then store them as `WEBHOOK_URL` and `WEBHOOK_TOKEN`.
+   - `POST` the exact `reply_url` with the JSON body `{turn_id, device_id, text}`. When `reply_auth` is `"url"`, do not add an `Authorization` header: the URL already carries its own short-lived, turn-scoped authorization.
+3. **Never put any secret value in the routine instructions.** The `reply_url` carries its own short-lived authorization, so no secret goes into the routine.
+4. The routine panel shows the **webhook URL and key**. The panel's `header` field is the full `Authorization: Bearer <key>` line. Ask the owner to paste the URL and key into protected fields, then store them as `WEBHOOK_URL` and `WEBHOOK_TOKEN`. The Worker sends `Authorization: Bearer <WEBHOOK_TOKEN>` by default.
 5. Set `ROUTINE_PROVIDER = "webhook"` and redeploy.
 
 ### 7b. Other agents

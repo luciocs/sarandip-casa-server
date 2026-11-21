@@ -216,13 +216,14 @@ export default {
 
       if (path === "/bloco/reply") {
         if (req.method !== "POST") return json({ error: "method" }, 405);
-        if (!(await authReply(req, env))) return json({ error: "unauthorized" }, 401);
         let b: { turn_id?: unknown; device_id?: unknown; text?: unknown };
         try { b = await req.json(); } catch { return json({ error: "bad_json" }, 400); }
         const turnId = typeof b.turn_id === "string" ? b.turn_id : "";
         const deviceId = typeof b.device_id === "string" ? b.device_id : "";
         const text = typeof b.text === "string" ? b.text.trim() : "";
         if (!/^t_[0-9a-f]{16,32}$/.test(turnId) || !/^[A-Za-z0-9_-]{1,64}$/.test(deviceId) || !text) return json({ error: "bad_request" }, 400);
+        // Bearer REPLY_SECRET, or a turn-scoped `t` query token. Never log the token or URL.
+        if (!(await authReply(req, env, { turn_id: turnId, device_id: deviceId }))) return json({ error: "unauthorized" }, 401);
         const r = await hub(env, deviceId).deliverReply(turnId, text.slice(0, 500));
         const code = { delivered: 200, offline: 503, muted: 409, unknown_turn: 404, expired: 410, already_delivered: 409, tts_error: 502 }[r.status];
         return json(r, code);

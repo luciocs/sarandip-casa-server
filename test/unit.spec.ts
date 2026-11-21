@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect } from "vitest";
 import { parseWav, wavHeader, guardPcmFrame, evenFrames, WavError } from "../src/wav";
-import { safeEqual, hexToBytes, authDevice, authReply, sha256, bytesToHex } from "../src/auth";
+import { safeEqual, hexToBytes, authDevice, authReply, authReplyToken, mintReplyToken, sha256, bytesToHex } from "../src/auth";
 import { stubTranscribe, transcribe } from "../src/adapters/stt";
 import { fastAnswer, systemPrompt, historyForLlm } from "../src/adapters/llm";
 import { synthesize } from "../src/adapters/tts";
-import { triggerRoutine, completeNativeRoutine } from "../src/adapters/routine";
+import { triggerRoutine, completeNativeRoutine, webhookHeaders } from "../src/adapters/routine";
 import { failText, ackText } from "../src/i18n";
 import type { Env } from "../src/env";
 import { pcm, wav, TOKEN, DEV } from "./helpers";
@@ -88,6 +88,47 @@ describe("auth", () => {
     expect(await authReply(ok(previous), rotating)).toBe(true);
     expect(await authReply(ok("not-a-valid-secret-xx"), rotating)).toBe(false);
   });
+  it("valid reply token authenticates that turn and device without a Bearer header", async () => {
+    const secret = "0123456789abcdef";
+    const turn = "t_0123456789abcdef";
+    const now = 1_737_072_000_000;
+    const env = baseEnv({ REPLY_SECRET: secret, REPLY_TTL_S: "900" });
+    const token = await mintReplyToken(env, turn, DEV, now);
+    expect(token).toMatch(/^[A-Za-z0-9_-]+\.\d+$/);
+    const req = new Request(`https://x/bloco/reply?t=${token}`, { method: "POST" });
+    expect(await authReply(req, env, { turn_id: turn, device_id: DEV }, now)).toBe(true);
+    expect(await authReplyToken(env, token!, turn, DEV, now + 1_000)).toBe(true);
+  });
+  it("rejects a reply token used with the wrong turn or device", async () => {
+    const env = baseEnv({ REPLY_SECRET: "0123456789abcdef", REPLY_TTL_S: "900" });
+    const now = 1_737_072_000_000;
+    const turn = "t_0123456789abcdef";
+    const token = (await mintReplyToken(env, turn, DEV, now))!;
+    expect(await authReplyToken(env, token, "t_aaaaaaaaaaaaaaaa", DEV, now)).toBe(false);
+    expect(await authReplyToken(env, token, turn, "dev_other", now)).toBe(false);
+  });
+  it("rejects an expired reply token", async () => {
+    const env = baseEnv({ REPLY_SECRET: "0123456789abcdef", REPLY_TTL_S: "900" });
+    const now = 1_737_072_000_000;
+    const turn = "t_0123456789abcdef";
+    const token = (await mintReplyToken(env, turn, DEV, now))!;
+    expect(await authReplyToken(env, token, turn, DEV, now + 901_000)).toBe(false);
+  });
+  it("rejects a tampered reply token mac or exp", async () => {
+    const env = baseEnv({ REPLY_SECRET: "0123456789abcdef", REPLY_TTL_S: "900" });
+    const now = 1_737_072_000_000;
+    const turn = "t_0123456789abcdef";
+    const token = (await mintReplyToken(env, turn, DEV, now))!;
+    const dot = token.lastIndexOf(".");
+    const mac = token.slice(0, dot);
+    const exp = token.slice(dot + 1);
+    const flipped = (mac[0] === "A" ? "B" : "A") + mac.slice(1);
+    expect(await authReplyToken(env, `${flipped}.${exp}`, turn, DEV, now)).toBe(false);
+    expect(await authReplyToken(env, `${mac}.${Number(exp) + 3600}`, turn, DEV, now)).toBe(false);
+    expect(await authReplyToken(env, "not-a-token", turn, DEV, now)).toBe(false);
+    const prev = baseEnv({ REPLY_SECRET: "ffffffffffffffff", REPLY_SECRET_PREVIOUS: "0123456789abcdef", REPLY_TTL_S: "900" });
+    expect(await authReplyToken(prev, token, turn, DEV, now)).toBe(true);
+  });
 });
 
 describe("adapters (real request shapes, fake network)", () => {
@@ -169,6 +210,12 @@ describe("adapters (real request shapes, fake network)", () => {
     expect(await triggerRoutine(baseEnv(), p, fakeFetch(() => Response.json({}), []))).toBe(true);
     expect(await triggerRoutine(baseEnv(), p, fakeFetch(() => new Response("", { status: 302 }), []))).toBe(false);
     expect(await triggerRoutine(baseEnv({ WEBHOOK_URL: "http://insecure" }), p, fakeFetch(() => Response.json({ success: true }), []))).toBe(false);
+    const custom: Call[] = [];
+    expect(await triggerRoutine(baseEnv({ WEBHOOK_AUTH_HEADER: "x-webhook-key" }), p, fakeFetch(() => new Response("", { status: 200 }), custom))).toBe(true);
+    const ch = custom[0].init.headers as Record<string, string>;
+    expect(ch["x-webhook-key"]).toBe("wh-k");
+    expect(ch.authorization).toBeUndefined();
+    expect(webhookHeaders(baseEnv()).authorization).toBe("Bearer wh-k");
   });
   it("OpenAI-compatible and Anthropic connectors send the documented request shapes", async () => {
     const p = { text: "t", turn_id: "t_0123456789abcdef", device_id: DEV, spoken_at: "2026-11-20T00:00:00Z", timezone: "UTC", local_date: "2026-11-20", weekday: "Friday", local_time: "22:00", utc_offset: "+00:00", local_datetime: "Friday, 20 November 2026, 22:00", source: "device", context: "", reply_url: "https://x/bloco/reply" };

@@ -31,6 +31,7 @@ export interface Env {
   ACK_TEXT: string;
   ROUTINE_FAIL_TEXT: string;
   PUBLIC_BASE_URL: string;
+  WEBHOOK_AUTH_HEADER?: string;
   REPLY_TTL_S: string;
   REPLY_RETRY_MAX: string;
   MEMORY_ENABLED: string;

@@ -7,7 +7,8 @@
 XAI_API_KEY=your-xai-api-key
 ELEVENLABS_API_KEY=your-elevenlabs-api-key
 
-# Long random string (>= 16 chars). Your agent uses it on POST /bloco/reply.
+# Long random string (>= 16 chars). Signs turn-scoped reply_url tokens and is
+# also accepted as Bearer on POST /bloco/reply.
 # During rotation, keep the previous value in REPLY_SECRET_PREVIOUS.
 REPLY_SECRET=generate-a-long-random-string
 # REPLY_SECRET_PREVIOUS=
@@ -21,6 +22,9 @@ ADMIN_TOKEN=generate-a-long-random-string
 # Optional: agent hand-off webhook (ROUTINE_PROVIDER=webhook).
 # WEBHOOK_URL=https://example.com/webhook
 # WEBHOOK_TOKEN=your-webhook-bearer-token
+# Optional var (in wrangler.toml, not a secret): WEBHOOK_AUTH_HEADER. Default
+# authorization sends Authorization: Bearer <WEBHOOK_TOKEN> (Grok Bot routine
+# webhooks). Any other header name sends the raw token in that header.
 
 # Optional: private memory repo. Public repos (including the default example,
 # once it is public) work without this token.

@@ -2,7 +2,7 @@
 import { exports as rawExports, env as rawEnv } from "cloudflare:workers";
 import type { Env } from "../src/env";
 import { describe, it, expect } from "vitest";
-import { sha256, bytesToHex } from "../src/auth";
+import { sha256, bytesToHex, mintReplyToken } from "../src/auth";
 import { normalizePairingCode, formatPairingCode } from "../src/registry";
 import { registry } from "../src/registryref";
 import { devHeaders, waitFor, DEV, REPLY, REPLY_PREV, ADMIN, BASE, TOKEN } from "./helpers";
@@ -252,6 +252,32 @@ describe("REPLY_SECRET rotation (integration)", () => {
       headers: { authorization: "Bearer totally-wrong-secret-xx", "content-type": "application/json" },
       body: JSON.stringify({ turn_id: "t_00000000000000aa", device_id: DEV, text: "oi" }),
     })).status).toBe(401);
+  });
+});
+
+describe("turn-scoped reply token (integration)", () => {
+  it("accepts a valid t query token without a Bearer header", async () => {
+    const token = await mintReplyToken(env, "t_00000000000000aa", DEV);
+    expect(token).toBeTruthy();
+    const ok = await call(`/bloco/reply?t=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ turn_id: "t_00000000000000aa", device_id: DEV, text: "oi" }),
+    });
+    // Auth passed (not 401); the turn itself is unknown.
+    expect(ok.status).toBe(404);
+    const wrongTurn = await call(`/bloco/reply?t=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ turn_id: "t_00000000000000bb", device_id: DEV, text: "oi" }),
+    });
+    expect(wrongTurn.status).toBe(401);
+    const tampered = await call("/bloco/reply?t=AAAA.1737072000", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ turn_id: "t_00000000000000aa", device_id: DEV, text: "oi" }),
+    });
+    expect(tampered.status).toBe(401);
   });
 });
 

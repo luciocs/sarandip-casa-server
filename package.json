@@ -38,7 +38,7 @@
         "description": "ElevenLabs API key for speech-to-text and text-to-speech."
       },
       "REPLY_SECRET": {
-        "description": "Long random string (>= 16 characters). Your agent uses it as a Bearer token on POST /bloco/reply. Generate with `openssl rand -base64 32`. Never put this value in routine or agent instructions."
+        "description": "Long random string (>= 16 characters). Signs turn-scoped reply_url tokens and is also accepted as a Bearer token on POST /bloco/reply. Generate with `openssl rand -base64 32`. Never put this value in routine or agent instructions."
       },
       "ADMIN_TOKEN": {
         "description": "Long random string (>= 16 characters) that protects pairing-code and revoke admin routes. Generate with `openssl rand -base64 32`."
@@ -47,7 +47,7 @@
         "description": "Optional HTTPS URL for agent hand-off (Grok Bot routine, OpenClaw, or any webhook)."
       },
       "WEBHOOK_TOKEN": {
-        "description": "Optional Bearer token for the agent webhook."
+        "description": "Optional token for the agent webhook. Sent as Authorization: Bearer by default (what a Grok Bot routine webhook expects). If WEBHOOK_AUTH_HEADER is set to another header name, the raw token is sent in that header."
       },
       "GITHUB_TOKEN": {
         "description": "Optional. Only needed for a *private* memory repository. Public repos are read without a token."

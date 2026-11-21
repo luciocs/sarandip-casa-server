@@ -22,11 +22,13 @@ export interface RoutinePayload {
   source: string;
   context: string;
   reply_url: string;
+  /** When "url", reply_url already carries a short-lived turn-scoped token; no Authorization header is needed. */
+  reply_auth?: "url";
 }
 
 export function buildRoutinePayload(a: {
   text: string; turnId: string; deviceId: string; pedido: string; history: { role: string; content: string }[];
-  replyUrl: string; clock: LocalClock; now: Date; source?: string; assistant?: string; language?: string;
+  replyUrl: string; replyAuth?: "url"; clock: LocalClock; now: Date; source?: string; assistant?: string; language?: string;
 }): RoutinePayload {
   const name = a.assistant || "sarandip";
   const talked = a.history.slice(-4).map((t) => `${historyLabel(t.role, name, a.language || "en")}: ${t.content.slice(0, 200)}`).join("\n");
@@ -44,6 +46,7 @@ export function buildRoutinePayload(a: {
     source: a.source || "device",
     context: [`pedido: ${a.pedido.slice(0, 300)}`, talked].filter(Boolean).join("\n").slice(0, 800),
     reply_url: a.replyUrl,
+    ...(a.replyAuth ? { reply_auth: a.replyAuth } : {}),
   };
 }
 
@@ -64,7 +67,7 @@ export async function triggerRoutine(env: Env, payload: RoutinePayload, fetchFn:
     return await withTimeout(num(env.ROUTINE_TIMEOUT_MS, 5000), async (signal) => {
       const r = await fetchFn(url, {
         method: "POST",
-        headers: { authorization: `Bearer ${env.WEBHOOK_TOKEN}`, "content-type": "application/json" },
+        headers: webhookHeaders(env),
         body: JSON.stringify(payload),
         redirect: "manual",
         signal,
@@ -76,6 +79,17 @@ export async function triggerRoutine(env: Env, payload: RoutinePayload, fetchFn:
   } catch {
     return false;
   }
+}
+
+/** Default (Grok Bot routine webhooks): Authorization: Bearer <WEBHOOK_TOKEN>.
+ * If WEBHOOK_AUTH_HEADER is set to another header name, send the raw token in it. */
+export function webhookHeaders(env: Env): Record<string, string> {
+  const token = env.WEBHOOK_TOKEN ?? "";
+  const name = (env.WEBHOOK_AUTH_HEADER ?? "authorization").trim().toLowerCase();
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (!name || name === "authorization") headers.authorization = `Bearer ${token}`;
+  else headers[name] = token;
+  return headers;
 }
 
 function openaiBase(env: Env): string {
