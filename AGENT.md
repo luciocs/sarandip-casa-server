@@ -1,0 +1,187 @@
+# AGENT.md: set up a Sarandip Casa voice server
+
+These are instructions for an AI agent (for example Grok Bot) that has Cloudflare access and is acting **for the device owner**.
+
+Goal: deploy this voice server into the **owner's own** Cloudflare account, set up the owner's keys as Worker Secrets, walk through memory and the owner's agent, verify everything, and pair the device.
+
+Every step is **idempotent**: check the current state first, change only what is missing, and verify afterwards.
+
+---
+
+## 0. Safety rules (non-negotiable)
+
+1. **Never print, log, echo, commit or paste a secret value.** This covers API keys, `REPLY_SECRET`, `REPLY_SECRET_PREVIOUS`, `ADMIN_TOKEN`, device tokens, `WEBHOOK_TOKEN` and `GITHUB_TOKEN`, and it applies to chat, terminal output, files, commit messages, routine or agent instructions, and issue text. When reporting, say "set" or "missing", never the value. Do not run commands whose output contains a secret. `tools/token.mjs` does not print a raw token; still, prefer pairing (step 4) so the token only ever appears in the pairing response to the device.
+2. **Ask the owner only for their API keys,** and only through a protected or masked input: the agent's secure form or secret field, or `wrangler secret put` reading from a pipe that you never display. **Never ask for keys in chat.** If the owner pastes a key in chat anyway, do not use it. Tell them to revoke it and create a new one.
+3. **Use the owner's account only.** Never deploy into an account that is not the owner's. If several accounts are visible, ask which one.
+4. **Do not commit** `wrangler.toml` with an `account_id`, nor `.dev.vars` or any generated token or hash. Never push to any remote unless the owner explicitly asks.
+5. **Confirm before anything destructive or externally visible:** deleting a Worker, Durable Object namespace or secret; overwriting an existing Worker that you did not create; rotating secrets in use; renaming the workers.dev subdomain; adding a custom domain or DNS records. State exactly what will change and wait for a yes.
+6. **Do not flash firmware** and do not change device settings beyond the pairing flow the owner performs.
+7. **Memory carries a privacy warning.** Anyone speaking to the device may hear its content. The fictional example repository is connected by default. Before pointing memory at a personal repository, tell the owner this and get a clear yes. Recommend a dedicated repository with nothing sensitive in it. The owner may skip memory entirely.
+8. **If a step fails twice, stop** and report what you tried and the error class. Do not try riskier alternatives.
+
+---
+
+## 1. Check Cloudflare access
+
+- With a Cloudflare connector, call `whoami` and list the accounts. With wrangler, run `npx wrangler whoami`.
+- If more than one account is listed, **ask the owner which one**. Record the account id **locally only**, as the env var `CLOUDFLARE_ACCOUNT_ID`, never in a committed file.
+- Find the account's workers.dev subdomain. If none exists, ask the owner to choose one; this is visible in URLs, so confirm it with them.
+- **Verify:** you can list Workers in that account.
+
+## 2. Prepare the config
+
+- `npm ci && npm test && npm run typecheck`. **Verify:** everything is green; the tests use stubs and need no network or keys.
+- Create `wrangler.toml` from `wrangler.example.toml` (it is gitignored). Set:
+  - `name`: ask the owner, or default to `sarandip-casa`. Check that no Worker with this name already exists in the account. If one does and you did not create it, ask before overwriting.
+  - `PUBLIC_BASE_URL`: you may leave it empty (the Worker then uses the request origin) or set `https://<name>.<subdomain>.workers.dev` so late-reply webhooks have a stable URL.
+  - `ASSISTANT_NAME`, `DEVICE_KIND`, `WAKE_WORD`, `WAKE_DISPLAY`: the owner's choice, limited to the wake words the firmware ships. Defaults are `Sarandip` / `device` / `hey_sarandip` / `Hey, Sarandip`.
+  - `ELEVENLABS_VOICE_ID`: ask the owner. Offer to list voices with their key; voice ids are not secret. Leave it empty until they choose.
+  - `LANGUAGE` (`en` or `pt-BR`) and `TTS_LANGUAGE_CODE`.
+  - `TZ` (IANA, for example `America/Sao_Paulo` or `UTC`). Default in the example file is `UTC`.
+  - `ROUTINE_PROVIDER = "off"` for now. It is switched on in step 7.
+
+## 3. Deploy the Worker and the Durable Objects
+
+- `npx wrangler deploy`, with `CLOUDFLARE_ACCOUNT_ID` set in the environment. This creates the Worker, the `DeviceHub` Durable Object and the `DeviceRegistry` Durable Object (SQLite classes, migration tag `v1`).
+- Alternative: deploy through the Cloudflare API or connector, using the same script and bindings. Keep existing `secret_text` and Durable Object bindings if you replace the script.
+- **Verify:** `GET <PUBLIC_BASE_URL or workers.dev URL>/health` returns `{"ok":true,"memory":"configured"}` with the default memory settings, or `"memory":"off"` if the owner already skipped memory. Device routes without a token return `401`.
+- Re-running is safe: a deploy replaces the code, and the migration `v1` applies only once.
+
+## 4. Generate internal secrets locally (the owner never sees them)
+
+- **`REPLY_SECRET`:** at least 32 random bytes, encoded as base64url, generated locally (for example `node -e` with `crypto.randomBytes`). The endpoint stays closed if the secret is shorter than 16 characters. Pipe it straight into `npx wrangler secret put REPLY_SECRET`, without printing it. You will need the same value once more in step 7, so keep it only in the agent's secret store, never in a file in the repo, and never in routine or agent instruction text.
+- **`ADMIN_TOKEN`:** the same kind of long random string. Pipe it into `npx wrangler secret put ADMIN_TOKEN`. You will use it to issue pairing codes and to read device status. Do not print it.
+- **Pairing (preferred way to deliver a device token):**
+  1. Choose a `device_id` matching `^[A-Za-z0-9_-]{1,64}$`, for example `dev_home01`, or let the device use the id it already has (chip-derived).
+  2. `POST /v1/admin/pairing-codes` with `Authorization: Bearer <ADMIN_TOKEN>` and an optional `{"ttl_s":600}`.
+  3. Show the owner **only the pairing code** (and when it expires). Never the device token.
+  4. The device calls `POST /v1/devices/pair` with `{pairing_code, device_id, fw_version}` and receives its token **once**. The server stores only the hash. See `PROTOCOL.md` §2 (frozen contract) and `docs/device-setup.md`.
+- **Legacy `DEVICE_TOKENS`:** only if pairing cannot be used. Hash a token with `node tools/token.mjs --hash-stdin <device_id>` (token on stdin, **hash only** on stdout) and store the JSON map with `npx wrangler secret put DEVICE_TOKENS`. Do not print the token. `DEVICE_TOKENS` is a fallback; the registry is the source of truth for paired devices.
+- **Verify:** `npx wrangler secret list` shows the names `REPLY_SECRET` and `ADMIN_TOKEN`. It shows names only, never values.
+
+## 5. Ask the owner for their API keys (protected field only)
+
+Ask for these, one at a time, each in a masked or secure field:
+
+| Secret | Where the owner gets it | Required |
+|---|---|---|
+| `XAI_API_KEY` | xAI console, API keys | yes |
+| `ELEVENLABS_API_KEY` | ElevenLabs, API keys. Limit it to speech-to-text and text-to-speech if the console allows. | yes |
+
+- Pipe each value directly into `npx wrangler secret put <NAME>`, or use the Cloudflare API or connector, without echoing it. Do not keep a copy.
+- **Verify:** `wrangler secret list` shows the names. Then try one fast question (step 8). A wrong key shows up as a spoken failure; the logs carry only the error class.
+
+## 6. Memory (the owner may skip this step)
+
+Memory is a normal part of setup. It is **on by default** and points at the fictional example repository `luciocs/jarvis-memory-demo`. Anyone who talks to the device may hear what is in the configured memory.
+
+**To skip:** set `MEMORY_ENABLED = "false"` and redeploy. `/health` then returns `"memory":"off"`. Stop here and continue to step 7.
+
+**To keep the example memory:** tell the owner that the default is a short fictional profile in the public repository `luciocs/jarvis-memory-demo`, and that it is read without a GitHub token. No token is needed unless they later point memory at a private repository of their own.
+
+**To use the owner's own repository:**
+
+1. Give the privacy warning (rule 7) and get an explicit yes.
+2. The owner creates or chooses a **dedicated** repository with an `Agent.md` file.
+   - Default sections (configurable via `MEMORY_SECTIONS`): `## Quem sou`, `## Família` / `## Familia`, `## Tom e formato` / `### Tom e formato`, `## Perfil resumido`.
+   - Lines with secret-like words are dropped, and the text is capped at `MEMORY_MAX_CHARS` (1400).
+3. If that repository is **public**, do not ask for a GitHub token.
+4. If it is **private**, the owner creates a fine-grained GitHub token:
+   - Repository access: *Only select repositories*, that one repo.
+   - Permissions: *Contents: Read-only*.
+   - The shortest practical expiry.
+   - They paste it into a protected field, and you store it as `GITHUB_TOKEN`.
+5. Set `MEMORY_ENABLED = "true"`, `MEMORY_REPO="<owner>/<repo>"` and, if needed, `MEMORY_PATH`, `MEMORY_REF` and `MEMORY_SECTIONS`, then redeploy.
+6. **Verify:** `/health` returns `"memory":"configured"`. Ask a question answered by the memory, such as "how do I like you to talk to me?".
+7. **Turning it off later:** set `MEMORY_ENABLED=false` (confirm first). If a `GITHUB_TOKEN` was stored and is no longer needed, ask before deleting it. Then check that `/health` says `"memory":"off"`.
+
+## 7. Connect the owner's agent (the owner may skip this step)
+
+The server forwards questions it cannot answer quickly to an agent. Skip this step if the owner only wants fast answers: leave `ROUTINE_PROVIDER = "off"`.
+
+The agent answers later with `POST <PUBLIC_BASE_URL or origin>/bloco/reply`.
+
+**Webhook request sent by the server** (`ROUTINE_PROVIDER = "webhook"`):
+- `POST <WEBHOOK_URL>` with `Authorization: Bearer <WEBHOOK_TOKEN>` and a JSON body.
+- The body has these fields: `text`, `turn_id`, `device_id`, `spoken_at` (ISO UTC), `timezone`, `local_date`, `weekday`, `local_time`, `utc_offset`, `local_datetime`, `source` (`DEVICE_KIND`), `context`, `reply_url`.
+- The webhook counts as accepted on **any HTTP 2xx**. Only the acknowledgement is awaited.
+
+**The agent's reply:**
+- `POST /bloco/reply` with `Authorization: Bearer <REPLY_SECRET>` and the body `{"turn_id":"t_…","device_id":"…","text":"<≤500 chars, plain spoken text>"}`.
+- The `turn_id` is valid for `REPLY_TTL_S` seconds.
+- Responses: `200 delivered`, `503 offline`, `409 muted` or `already_delivered`, `404 unknown_turn`, `410 expired`, `400` bad request, `502 tts_error`.
+
+### 7a. Grok Bot routine (webhook)
+
+1. In Grok Bot, create a routine (for example "Sarandip late answer") with a **webhook trigger**.
+2. Write its instructions. The routine should:
+   - read the JSON body;
+   - answer `text` using the owner's tools and the provided local date and time;
+   - keep the answer short, spoken-style and without markdown;
+   - send `POST reply_url` with `turn_id`, `device_id` and `text`, authenticated with the reply secret.
+3. **Never put any secret value in the routine instructions.** Give the routine the `REPLY_SECRET` through the agent's secret storage, not the prompt. (The exact supported way for a *routine* to hold a secret on Grok Bot is not confirmed in this repository; if you cannot give the routine a secret without putting it in the text, stop and tell the owner instead of inventing a workaround.)
+4. The routine panel shows the **webhook URL and key**. Ask the owner to paste them into protected fields, then store them as `WEBHOOK_URL` and `WEBHOOK_TOKEN`.
+5. Set `ROUTINE_PROVIDER = "webhook"` and redeploy.
+
+### 7b. Other agents
+
+- Any HTTPS endpoint that accepts the webhook request above and calls `/bloco/reply` works: n8n, Make, a small server, OpenClaw (configure it as a generic webhook), or another agent platform.
+- Native connectors: set `ROUTINE_PROVIDER = "openai"` (OpenAI-compatible; `OPENAI_BASE_URL`, `OPENAI_MODEL`, secret `OPENAI_API_KEY`) or `ROUTINE_PROVIDER = "anthropic"` (`ANTHROPIC_MODEL`, secret `ANTHROPIC_API_KEY`). The Worker calls the API after the spoken acknowledgement and delivers the answer as a late reply.
+
+**Verify:** run the simulated hand-off in step 8.
+
+## 8. Tests
+
+1. **Health:** `GET /health` returns `200 {"ok":true,...}`.
+2. **Auth:** `GET /bloco/config` without `X-Device-Token` returns `401`. After pairing, with the token (do not print it) it returns `200`, with `"protocol":"sarandip-ws-1"` and `"ambient_listen":"off"`.
+3. **Simulated voice turn:**
+   - Use `tools/live-turn.mjs <base_url> <question.wav>`, with the token in the env var `DEVICE_TOKEN`. Never type the token on the command line, where it would land in shell history.
+   - The WAV must be PCM16, mono, 16 kHz, for example "what day and time is it?".
+   - **Verify:** the answer gives today's date, weekday and time in the configured time zone. Compare with the `local_now` the tool prints (it uses `TZ` and `LANGUAGE` from the environment, default `UTC` / `en`).
+4. **Local smoke test without keys:**
+   - `npx wrangler dev --local -c wrangler.example.toml` with a `.dev.vars` file that sets every `*_PROVIDER="stub"`.
+   - Run `node tools/smoke-device.mjs 127.0.0.1 <port> <token> <reply_secret>`, using throwaway local values only.
+5. **Hand-off,** if step 7 is done:
+   - Ask something that needs the agent, for example "what is my next calendar event?".
+   - **Verify:**
+     - the response carries the header `X-Sarandip-Late-Reply: 1` and the spoken "on it" message;
+     - a WebSocket client receives `hello_ack`, then `tts_start`, binary PCM16 at 16 kHz, and `tts_end` for the same `turn_id`;
+     - `/bloco/reply` answers `200 delivered`.
+6. **Time zone:** in tests, or in a temporary deploy, set a different `TZ` and check that the spoken answer and the `timezone` and `local_time` fields of the webhook payload change accordingly.
+
+## 9. Pair the device
+
+Follow `docs/device-setup.md` together with the owner:
+1. The owner connects to the Wi-Fi network `Sarandip-Setup`.
+2. The setup page opens by itself.
+3. The owner chooses their home Wi-Fi, enters its password, and types the **pairing code** from step 4. An advanced field may hold the server URL if it is not already known.
+4. **Verify:**
+   - `GET /v1/devices/status?device_id=<id>` with `Authorization: Bearer <ADMIN_TOKEN>` returns `"online": true` once the device has opened the WebSocket and sent `hello`;
+   - the owner says the wake word and gets a spoken answer.
+
+The captive portal itself is firmware work. The server pairing endpoints are implemented; if the device firmware is not ready, stop and tell the owner — do not flash anything.
+
+## 10. Rotation, revocation, rollback
+
+- **Rotate an API key:** the owner creates a new key at the provider. You store it with `wrangler secret put` (it takes effect without a code change), then the owner revokes the old key.
+- **Rotate `REPLY_SECRET`** (per owner, not per device):
+  1. Confirm with the owner first.
+  2. Generate the new value and update the agent's copy first.
+  3. Put the new value in `REPLY_SECRET` and the previous value in `REPLY_SECRET_PREVIOUS`.
+  4. After late answers that still use the old value have finished (up to `REPLY_TTL_S`), delete `REPLY_SECRET_PREVIOUS`.
+- **Revoke a device:** `POST /v1/admin/devices/revoke` with `ADMIN_TOKEN` and `{"device_id":"…"}` (confirm first). If a legacy `DEVICE_TOKENS` entry exists, remove it from that secret too. The next request gets `401`. To re-pair, the owner holds the device button for about 10 seconds to reopen the setup portal, and you issue a new pairing code.
+- **Turn memory or the agent off:** see steps 6 and 7. `ROUTINE_PROVIDER="off"` disables hand-off. `MEMORY_ENABLED=false` disables memory.
+- **Roll back code:** `npx wrangler rollback`, or `wrangler deployments list` and then `wrangler rollback <id>`. Confirm first. Secrets are not rolled back.
+- **Remove everything:** `npx wrangler delete <name>`. Confirm explicitly, because this deletes the Durable Object data. Then the owner revokes the API keys and any GitHub token at the providers.
+
+## 11. Report to the owner
+
+Give a short summary:
+- the Worker URL;
+- what is configured, as set or missing, never values;
+- whether memory is on or off, and whether it is the example repository or the owner's;
+- whether an agent is connected, and which provider;
+- the test results;
+- what remains.
+
+No secret values.
