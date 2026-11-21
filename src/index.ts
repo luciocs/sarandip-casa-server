@@ -151,6 +151,16 @@ async function welcomeAudioAdmin(req: Request, env: Env): Promise<Response> {
   return json({ stored: true, bytes: r.bytes, audio_ms: Math.round(r.bytes / 32) });
 }
 
+
+async function deviceActivity(req: Request, env: Env): Promise<Response> {
+  if (req.method !== "GET") return json({ error: "method" }, 405);
+  if (!(await authAdmin(req, env))) return json({ error: "unauthorized" }, 401);
+  const deviceId = new URL(req.url).searchParams.get("device_id") ?? "";
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) return json({ error: "bad_request" }, 400);
+  const limit = Number(new URL(req.url).searchParams.get("limit") ?? "80");
+  return json({ device_id: deviceId, ...(await hub(env, deviceId).activity(limit)) });
+}
+
 /** Re-arm the welcome for one device (plays now if it is online, else on its next connection). */
 async function rearmWelcome(req: Request, env: Env): Promise<Response> {
   if (req.method !== "POST") return json({ error: "method" }, 405);
@@ -191,6 +201,7 @@ export default {
       if (path === "/v1/devices/status") return deviceStatus(req, env);
       if (path === "/v1/admin/welcome-audio") return welcomeAudioAdmin(req, env);
       if (path === "/v1/admin/devices/welcome") return rearmWelcome(req, env);
+      if (path === "/v1/admin/devices/activity") return deviceActivity(req, env);
 
       if (path === "/bloco/reply") {
         if (req.method !== "POST") return json({ error: "method" }, 405);

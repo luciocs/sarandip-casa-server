@@ -172,6 +172,22 @@ export class DeviceHub extends DurableObject<Env> {
     return this.sql.exec("SELECT COUNT(*) AS n FROM wake_log").one().n as number;
   }
 
+  /** Recent wake-log rows, remembered turns and late-reply turn records. Admin diagnostics only. */
+  async activity(limit = 50): Promise<{
+    wake: { ts: number; keyword: string; score: number; max: number; window: number; fw: string }[];
+    history: { ts: number; role: string; content: string }[];
+    turns: { turn_id: string; created_ms: number; text: string; status: string }[];
+  }> {
+    const n = Math.min(200, Math.max(1, Math.floor(limit)));
+    const wake = this.sql.exec("SELECT ts, keyword, score, max, win, fw FROM wake_log ORDER BY id DESC LIMIT ?", n).toArray()
+      .map((r) => ({ ts: Number(r.ts), keyword: String(r.keyword ?? ""), score: Number(r.score), max: Number(r.max), window: Number(r.win), fw: String(r.fw ?? "") }));
+    const history = this.sql.exec("SELECT ts, role, content FROM history ORDER BY id DESC LIMIT ?", n).toArray()
+      .map((r) => ({ ts: Number(r.ts), role: String(r.role), content: String(r.content ?? "") }));
+    const turns = this.sql.exec("SELECT turn_id, created_ms, text, status FROM turns ORDER BY created_ms DESC LIMIT ?", n).toArray()
+      .map((r) => ({ turn_id: String(r.turn_id), created_ms: Number(r.created_ms), text: String(r.text ?? ""), status: String(r.status ?? "") }));
+    return { wake, history, turns };
+  }
+
   /** Delivery state of one turn (no text). */
   async turnInfo(turnId: string): Promise<{ status: string; attempts: number; result: string | null } | null> {
     const r = this.sql.exec("SELECT status, attempts, result FROM turns WHERE turn_id = ?", turnId).toArray()[0];
