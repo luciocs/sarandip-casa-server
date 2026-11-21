@@ -83,10 +83,17 @@ export async function handleTurn(req: Request, env: Env, ctx: ExecutionContext, 
   const store: MemoryStore = { get: (k) => h.memoryGet(k), put: (p) => h.memoryPut(p) };
   const memory: Promise<MemoryResult> = getMemory(env, store, { waitUntil: (p) => ctx.waitUntil(p) })
     .catch((): MemoryResult => ({ text: "", state: "unavailable" }));
-  const text = await transcribe(env, pcm).catch(() => null);
+  const text = await transcribe(env, pcm).catch((e) => {
+    console.error("turn stt", (e as Error)?.message ?? "error", "pcm", pcm.byteLength);
+    return null;
+  });
   if (text === null) return err(502, "stt failed");
   const silent = { "x-sarandip-route": "silent" };
-  if (text.replace(/[\s.,!?…]+/g, "").length < 2) return new Response(null, { status: 204, headers: silent });
+  if (text.replace(/[\s.,!?…]+/g, "").length < 2) {
+    console.log("turn silent", "chars", text.length);
+    return new Response(null, { status: 204, headers: silent });
+  }
+  console.log("turn transcript", text.slice(0, 300));
 
   const history = await h.history().catch(() => []);
   const mem = await memory;
@@ -96,8 +103,12 @@ export async function handleTurn(req: Request, env: Env, ctx: ExecutionContext, 
     : await fastAnswer(env, text, history, fetch, { clock, memory: mem.text });
 
   if (fast.kind === "answer") {
+    console.log("turn reply", "route", "fast", fast.text.slice(0, 300));
     await h.remember(text, fast.text).catch(() => undefined);
-    const tts = await synthesize(env, fast.text).catch(() => null);
+    const tts = await synthesize(env, fast.text).catch((e) => {
+      console.error("turn tts", (e as Error)?.message ?? "error");
+      return null;
+    });
     if (!tts) return err(502, "tts failed");
     return speak(tts, { "x-sarandip-route": "fast", "x-sarandip-late-reply": "0" });
   }
@@ -122,7 +133,11 @@ export async function handleTurn(req: Request, env: Env, ctx: ExecutionContext, 
   const sayFail = failText(env);
   await h.remember(text, accepted ? sayOk : "").catch(() => undefined);
   const say = accepted ? sayOk : sayFail;
-  const tts = await synthesize(env, say).catch(() => null);
+  console.log("turn reply", "route", accepted ? "routine" : "routine_failed", "reason", fast.kind === "escalate" ? fast.reason : "", say.slice(0, 300));
+  const tts = await synthesize(env, say).catch((e) => {
+    console.error("turn tts", (e as Error)?.message ?? "error");
+    return null;
+  });
   if (!tts) return err(502, "tts failed");
   return speak(tts, {
     "x-sarandip-route": accepted ? "routine" : "routine_failed",

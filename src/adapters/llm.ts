@@ -57,11 +57,23 @@ export async function fastAnswer(
           body: JSON.stringify(body),
           signal,
         });
-        if (!r.ok) throw new Error(`xai http ${r.status}`);
+        if (!r.ok) {
+          const raw = await r.text().catch(() => "");
+          let hint = raw.replace(/\s+/g, " ").trim().slice(0, 160);
+          try {
+            const j = JSON.parse(raw) as { error?: { message?: string; code?: string; type?: string } | string };
+            const e = j.error;
+            if (typeof e === "string") hint = e.slice(0, 160);
+            else if (e && typeof e === "object") hint = [e.type, e.code, e.message].filter(Boolean).join(" ").slice(0, 160);
+          } catch { /* not json */ }
+          console.error("xai http", r.status, hint, "model", env.XAI_MODEL);
+          throw new Error(`xai http ${r.status}`);
+        }
         const j = (await r.json()) as { choices?: { message?: { content?: string } }[] };
         return String(j.choices?.[0]?.message?.content ?? "").trim();
       });
-    } catch {
+    } catch (e) {
+      console.error("llm error", (e as Error)?.name ?? "error", (e as Error)?.message ?? "", "model", env.XAI_MODEL);
       return { kind: "escalate", pedido: text, reason: "llm_error" };
     }
   }
