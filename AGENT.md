@@ -35,7 +35,7 @@ Every step is **idempotent**: check the current state first, change only what is
   - `name`: ask the owner, or default to `sarandip-casa`. Check that no Worker with this name already exists in the account. If one does and you did not create it, ask before overwriting.
   - `PUBLIC_BASE_URL`: you may leave it empty (the Worker then uses the request origin) or set `https://<name>.<subdomain>.workers.dev` so late-reply webhooks have a stable URL.
   - `ASSISTANT_NAME`, `DEVICE_KIND`: the owner's choice. Defaults `Sarandip` / `device`.
-  - `WAKE_WORD`, `WAKE_DISPLAY`: must name the wake model the device firmware was built with. The public firmware default is `okay_nabu` / `Okay Nabu` (the example file's default); the only other shipped model is `hey_mycroft` / `Hey Mycroft`. These are labels: the device always uses its embedded model. There is no "Hey Sarandip" model.
+  - `WAKE_WORD`, `WAKE_DISPLAY`: must name the wake model the device firmware was built with. The public firmware default is `hey_jarvis` / `Hey Jarvis` (the example file's default); the other shipped models are `okay_nabu` / `Okay Nabu` and `hey_mycroft` / `Hey Mycroft`. These are labels: the device always uses its embedded model. A "Hey Sarandip" model is future work and not available yet; do not configure it.
   - `ELEVENLABS_VOICE_ID`: ask the owner. Offer to list voices with their key; voice ids are not secret. Leave it empty until they choose.
   - `LANGUAGE` (`en` or `pt-BR`) and `TTS_LANGUAGE_CODE`.
   - `TZ` (IANA, for example `America/Sao_Paulo` or `UTC`). Default in the example file is `UTC`.
@@ -159,7 +159,7 @@ The owner-facing steps live in the firmware package: `../sarandip-casa-firmware/
 4. The page shows "Saved" (green ring, the device restarts) or a clear error: wrong Wi-Fi password, network not found, no internet time, code not found (`404`), code expired or used (`410`), too many attempts (`429`), server unreachable.
 5. **Verify:**
    - `GET /v1/devices/status?device_id=<id>` with `Authorization: Bearer <ADMIN_TOKEN>` returns `"online": true` once the device has opened the WebSocket and sent `hello`. The device id is `sc-` followed by the Wi-Fi MAC in hex (12 characters);
-   - the owner says "Okay Nabu" (or the wake word of their build) and gets a spoken answer.
+   - the owner says "Hey Jarvis" (or the wake word of their build) and gets a spoken answer.
 
 Do not flash anything. If the device does not run the Sarandip Casa firmware yet, stop and tell the owner.
 

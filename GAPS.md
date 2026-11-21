@@ -22,7 +22,7 @@ Internal notes for this package. Not required in a public README. Status after t
 
 Os 7 itens de firmware foram implementados lá (portal cativo `Sarandip-Setup`, gestos para reabrir o setup e para factory reset (chave de mudo: 5 trocas em 5 s / 10 em 10 s; BOOT: 10 s / 25 s), credenciais atômicas na NVS, pareamento contra o §2 do `PROTOCOL.md`, wake word `okay_nabu` com licença Apache-2.0 verificada, sem OTA). Teste de contrato de pareamento contra cópia local deste servidor: 14/14.
 
-Decisões do Lucio (20/11/2026 22:25): rede de setup aberta; wake word pública padrão `okay_nabu` (este servidor: `WAKE_WORD=okay_nabu`, `WAKE_DISPLAY=Okay Nabu`); token na NVS sem criptografia, mitigação = revogação no servidor; factory reset 25 s; Adafruit NeoPixel LGPL-3.0 aprovada.
+Decisões do Lucio (20/11/2026 22:25): rede de setup aberta; wake word pública padrão `okay_nabu` (substituída às 22:32: padrão `hey_jarvis`, este servidor `WAKE_WORD=hey_jarvis`, `WAKE_DISPLAY=Hey Jarvis`; `okay_nabu` e `hey_mycroft` como alternativas; "Hey Sarandip" é futura); token na NVS sem criptografia, mitigação = revogação no servidor; factory reset 25 s; Adafruit NeoPixel LGPL-3.0 aprovada.
 
 Pendente: medição de heap e teste na placa real (sem flash sem o Lucio).
 

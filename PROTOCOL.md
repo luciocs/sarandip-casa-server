@@ -119,7 +119,7 @@ To revoke a paired device: `POST /v1/admin/devices/revoke` with `Authorization: 
 
 ```json
 {
-  "backend": "sarandip", "wake_word": "okay_nabu", "wake_display": "Okay Nabu",
+  "backend": "sarandip", "wake_word": "hey_jarvis", "wake_display": "Hey Jarvis",
   "sample_rate": 16000, "channels": 1, "bits": 16,
   "turn_url": "https://<base>/bloco/turn", "wake_log_url": "https://<base>/bloco/wake-log",
   "ws_url": "wss://<base>/v1/devices/stream",
@@ -134,11 +134,11 @@ To revoke a paired device: `POST /v1/admin/devices/revoke` with `Authorization: 
 - The response does **not** include a `sarandip_base` override: the device keeps the base it already has (from pairing or from its saved settings).
 - `ambient_listen` is always `"off"`. This config cannot turn ambient listening on.
 - `tz` is the configured IANA time zone.
-- `wake_word` / `wake_display` are labels. The device always uses the wake model embedded in its firmware build (public default `okay_nabu`, "Okay Nabu"); it ignores `wake_word` and any `model`, `models`, `model_url` or `models_detail` key, and never downloads models.
+- `wake_word` / `wake_display` are labels. The device always uses the wake model embedded in its firmware build (public default `hey_jarvis`, "Hey Jarvis"; alternatives `okay_nabu`, `hey_mycroft`); it ignores `wake_word` and any `model`, `models`, `model_url` or `models_detail` key, and never downloads models.
 
 ## 5. `POST /bloco/wake-log`
 
-Device-authenticated. Body like `{"keyword":"okay_nabu","score":0.97,"max":0.99,"window":3,"fw":"0.7.7"}`. Response `204`. Stored in the device Durable Object (last 2000 rows).
+Device-authenticated. Body like `{"keyword":"hey_jarvis","score":0.97,"max":0.99,"window":3,"fw":"0.7.7"}`. Response `204`. Stored in the device Durable Object (last 2000 rows).
 
 ## 6. `POST /bloco/turn`
 

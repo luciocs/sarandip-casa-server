@@ -17,7 +17,8 @@ keeps only what the server operator (or the owner's agent) needs, and must not c
 - **Factory reset:** flip the mute switch **10 times within about 10 seconds** (ring turns red), then leave it
   alone for 3 seconds. Alternative: hold BOOT for about **25 seconds** (ring blinks red) and release.
   An 11th flip cancels. The mute switch always keeps muting (closed = muted).
-- Wake word: the public firmware default is **"Okay Nabu"** (`okay_nabu`). Set `WAKE_WORD` / `WAKE_DISPLAY`
+- Wake word: the public firmware default is **"Hey Jarvis"** (`hey_jarvis`); `okay_nabu` and `hey_mycroft`
+  are build-time alternatives. Set `WAKE_WORD` / `WAKE_DISPLAY`
   to the model of the owner's firmware build.
 - The device token is kept in the device's NVS **without encryption**. The mitigation for a lost, stolen or
   given-away device is **revoking it on this server** (below).

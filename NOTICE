@@ -10,9 +10,16 @@ License, Version 2.0 (see docs/LICENSE-APACHE-2.0.txt). It carries an
 SPDX-License-Identifier: Apache-2.0 header.
 
 This package does not redistribute a wake-word model. The firmware
-(separate package, Apache-2.0) ships the okay_nabu and hey_mycroft models
-from the ESPHome micro-wake-word-models collection (Open Home Foundation,
+(separate package, Apache-2.0) ships the hey_jarvis (default), okay_nabu and
+hey_mycroft models from the ESPHome micro-wake-word-models collection (Open Home Foundation,
 Apache-2.0) and carries its own NOTICE.
+
+Names and trademarks: wake word names such as "Jarvis", "Nabu" and
+"Mycroft", and the "jarvis" in the example memory repository name, may
+refer to trademarks, products, services, characters or works owned by
+third parties (J.A.R.V.I.S. is a fictional character from third-party
+works). They are used only descriptively. Sarandip Server casa is not
+affiliated with, sponsored or endorsed by any of those owners.
 
 Third-party software used to build and test this project (devDependencies,
 not distributed as a runtime bundle of this Worker) includes, among others:

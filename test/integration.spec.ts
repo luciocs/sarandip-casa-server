@@ -58,14 +58,15 @@ describe("auth and config", () => {
     expect(c.ambient_enabled).toBe(0);
     expect(c.ws_enabled).toBe(1);
     expect(c.turn_uplink).toBe("http");
-    expect(c.wake_word).toBe("okay_nabu");
+    expect(c.wake_word).toBe("hey_jarvis");
+    expect(c.wake_display).toBe("Hey Jarvis");
     expect(c.ws_url).toBe("wss://casa.test/v1/devices/stream");
     expect(c).not.toHaveProperty("sarandip_base");
   });
   it("wake-log is stored and answers 204", async () => {
     const r = await call("/bloco/wake-log", {
       method: "POST", headers: devHeaders({ "content-type": "application/json" }),
-      body: JSON.stringify({ keyword: "okay_nabu", score: 0.97, max: 0.99, window: 3, fw: "0.7.7-test" }),
+      body: JSON.stringify({ keyword: "hey_jarvis", score: 0.97, max: 0.99, window: 3, fw: "0.7.7-test" }),
     });
     expect(r.status).toBe(204);
     expect(await hubFor(DEV).wakeCount()).toBeGreaterThanOrEqual(1);
