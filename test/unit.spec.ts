@@ -10,7 +10,7 @@ import type { Env } from "../src/env";
 import { pcm, wav, TOKEN, DEV } from "./helpers";
 
 const baseEnv = (over: Partial<Env> = {}): Env => ({
-  ASSISTANT_NAME: "Sarandip", DEVICE_KIND: "device", WAKE_WORD: "hey_sarandip", WAKE_DISPLAY: "Hey, Sarandip",
+  ASSISTANT_NAME: "Sarandip", DEVICE_KIND: "device", WAKE_WORD: "okay_nabu", WAKE_DISPLAY: "Okay Nabu",
   LANGUAGE: "pt-BR", TZ: "America/Sao_Paulo",
   STT_PROVIDER: "elevenlabs", ELEVENLABS_STT_MODEL: "scribe_v2", LLM_PROVIDER: "xai", XAI_MODEL: "grok-test",
   XAI_MAX_TOKENS: "160", XAI_TIMEOUT_MS: "4000", ESCALATE_MARK: "<<AGENT>>", TTS_PROVIDER: "elevenlabs",

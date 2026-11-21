@@ -119,7 +119,7 @@ To revoke a paired device: `POST /v1/admin/devices/revoke` with `Authorization: 
 
 ```json
 {
-  "backend": "sarandip", "wake_word": "hey_sarandip", "wake_display": "Hey, Sarandip",
+  "backend": "sarandip", "wake_word": "okay_nabu", "wake_display": "Okay Nabu",
   "sample_rate": 16000, "channels": 1, "bits": 16,
   "turn_url": "https://<base>/bloco/turn", "wake_log_url": "https://<base>/bloco/wake-log",
   "ws_url": "wss://<base>/v1/devices/stream",
@@ -134,10 +134,11 @@ To revoke a paired device: `POST /v1/admin/devices/revoke` with `Authorization: 
 - The response does **not** include a `sarandip_base` override: the device keeps the base it already has (from pairing or from its saved settings).
 - `ambient_listen` is always `"off"`. This config cannot turn ambient listening on.
 - `tz` is the configured IANA time zone.
+- `wake_word` / `wake_display` are labels. The device always uses the wake model embedded in its firmware build (public default `okay_nabu`, "Okay Nabu"); it ignores `wake_word` and any `model`, `models`, `model_url` or `models_detail` key, and never downloads models.
 
 ## 5. `POST /bloco/wake-log`
 
-Device-authenticated. Body like `{"keyword":"hey_sarandip","score":0.97,"max":0.99,"window":3,"fw":"0.7.7"}`. Response `204`. Stored in the device Durable Object (last 2000 rows).
+Device-authenticated. Body like `{"keyword":"okay_nabu","score":0.97,"max":0.99,"window":3,"fw":"0.7.7"}`. Response `204`. Stored in the device Durable Object (last 2000 rows).
 
 ## 6. `POST /bloco/turn`
 
@@ -145,7 +146,8 @@ Device-authenticated. Body like `{"keyword":"hey_sarandip","score":0.97,"max":0.
 
 - `Content-Type: multipart/form-data; boundary=BelaTurn7f3a`, `Connection: close` and an exact `Content-Length` (no chunked uplink).
 - Part `wake` (WAV PCM16 mono 16 kHz, wake clip) and part `audio` (WAV PCM16 mono 16 kHz, the question).
-- Headers `X-Sarandip-Trigger: wake|button|continuation`, `X-Sarandip-Wake-Score`, `X-Sarandip-Wake-Hi`, `X-Sarandip-Wake-Cut`. `X-Bela-Firmware` is accepted and ignored.
+- Headers `X-Sarandip-Trigger: wake|button|continuation`, `X-Sarandip-Wake-Score`, `X-Sarandip-Wake-Hi`, `X-Sarandip-Wake-Cut`. `X-Bela-Firmware` (legacy) is accepted and ignored.
+- `X-Sarandip-Firmware: <version>` (e.g. `0.1.0-dev`): the firmware version, sent by the device on `GET /bloco/config` and `POST /bloco/turn`. Informational; the server may log it and must not reject a request because it is missing or unknown.
 - Button or continuation turns may send a single `Content-Type: audio/wav` body instead of multipart.
 
 Limits: body up to 1 MiB (`413`); question up to 15 s (`413`); WAV must be PCM16 mono 16 kHz (`400`); a `data` size of `0xFFFFFFFF` is accepted; `X-Sarandip-Trigger: wake` without a `wake` part is `400`.

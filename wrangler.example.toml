@@ -10,8 +10,9 @@ workers_dev = true
 [vars]
 ASSISTANT_NAME = "Sarandip"
 DEVICE_KIND = "device"
-WAKE_WORD = "hey_sarandip"
-WAKE_DISPLAY = "Hey, Sarandip"
+# Must name the model the device firmware was built with: okay_nabu ("Okay Nabu", public default) or hey_mycroft.
+WAKE_WORD = "okay_nabu"
+WAKE_DISPLAY = "Okay Nabu"
 LANGUAGE = "en"
 TZ = "UTC"
 # "elevenlabs" | "stub"

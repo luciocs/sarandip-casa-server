@@ -9,9 +9,10 @@ The wire-protocol document PROTOCOL.md is licensed under the Apache
 License, Version 2.0 (see docs/LICENSE-APACHE-2.0.txt). It carries an
 SPDX-License-Identifier: Apache-2.0 header.
 
-This package does not redistribute a wake-word model. Wake-word
-licensing is a firmware concern and must be confirmed before a
-firmware repository is published.
+This package does not redistribute a wake-word model. The firmware
+(separate package, Apache-2.0) ships the okay_nabu and hey_mycroft models
+from the ESPHome micro-wake-word-models collection (Open Home Foundation,
+Apache-2.0) and carries its own NOTICE.
 
 Third-party software used to build and test this project (devDependencies,
 not distributed as a runtime bundle of this Worker) includes, among others:

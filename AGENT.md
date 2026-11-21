@@ -34,7 +34,8 @@ Every step is **idempotent**: check the current state first, change only what is
 - Create `wrangler.toml` from `wrangler.example.toml` (it is gitignored). Set:
   - `name`: ask the owner, or default to `sarandip-casa`. Check that no Worker with this name already exists in the account. If one does and you did not create it, ask before overwriting.
   - `PUBLIC_BASE_URL`: you may leave it empty (the Worker then uses the request origin) or set `https://<name>.<subdomain>.workers.dev` so late-reply webhooks have a stable URL.
-  - `ASSISTANT_NAME`, `DEVICE_KIND`, `WAKE_WORD`, `WAKE_DISPLAY`: the owner's choice, limited to the wake words the firmware ships. Defaults are `Sarandip` / `device` / `hey_sarandip` / `Hey, Sarandip`.
+  - `ASSISTANT_NAME`, `DEVICE_KIND`: the owner's choice. Defaults `Sarandip` / `device`.
+  - `WAKE_WORD`, `WAKE_DISPLAY`: must name the wake model the device firmware was built with. The public firmware default is `okay_nabu` / `Okay Nabu` (the example file's default); the only other shipped model is `hey_mycroft` / `Hey Mycroft`. These are labels: the device always uses its embedded model. There is no "Hey Sarandip" model.
   - `ELEVENLABS_VOICE_ID`: ask the owner. Offer to list voices with their key; voice ids are not secret. Leave it empty until they choose.
   - `LANGUAGE` (`en` or `pt-BR`) and `TTS_LANGUAGE_CODE`.
   - `TZ` (IANA, for example `America/Sao_Paulo` or `UTC`). Default in the example file is `UTC`.
@@ -151,15 +152,16 @@ The agent answers later with `POST <PUBLIC_BASE_URL or origin>/bloco/reply`.
 
 ## 9. Pair the device
 
-Follow `docs/device-setup.md` together with the owner:
-1. The owner connects to the Wi-Fi network `Sarandip-Setup`.
-2. The setup page opens by itself.
-3. The owner chooses their home Wi-Fi, enters its password, and types the **pairing code** from step 4. An advanced field may hold the server URL if it is not already known.
-4. **Verify:**
-   - `GET /v1/devices/status?device_id=<id>` with `Authorization: Bearer <ADMIN_TOKEN>` returns `"online": true` once the device has opened the WebSocket and sent `hello`;
-   - the owner says the wake word and gets a spoken answer.
+The owner-facing steps live in the firmware package: `../sarandip-casa-firmware/docs/device-setup.md` (source of truth; `docs/device-setup.md` here keeps only the server side). With the owner:
+1. Create a pairing code (`POST /v1/admin/pairing-codes`, default 10 minutes) and give the owner **only the code** and the server URL (`https://...`). Never the token.
+2. The owner powers the device. On first boot the ring breathes blue and the device opens the **open** Wi-Fi network `Sarandip-Setup` (no password, by design). The owner joins it; the setup page opens by itself (or `http://192.168.4.1`).
+3. The owner picks the home Wi-Fi (2.4 GHz), types its password, the pairing code and, under "Advanced", the server URL unless the firmware build prefilled it.
+4. The page shows "Saved" (green ring, the device restarts) or a clear error: wrong Wi-Fi password, network not found, no internet time, code not found (`404`), code expired or used (`410`), too many attempts (`429`), server unreachable.
+5. **Verify:**
+   - `GET /v1/devices/status?device_id=<id>` with `Authorization: Bearer <ADMIN_TOKEN>` returns `"online": true` once the device has opened the WebSocket and sent `hello`. The device id is `sc-` followed by the Wi-Fi MAC in hex (12 characters);
+   - the owner says "Okay Nabu" (or the wake word of their build) and gets a spoken answer.
 
-The captive portal itself is firmware work. The server pairing endpoints are implemented; if the device firmware is not ready, stop and tell the owner — do not flash anything.
+Do not flash anything. If the device does not run the Sarandip Casa firmware yet, stop and tell the owner.
 
 ## 10. Rotation, revocation, rollback
 
@@ -169,7 +171,9 @@ The captive portal itself is firmware work. The server pairing endpoints are imp
   2. Generate the new value and update the agent's copy first.
   3. Put the new value in `REPLY_SECRET` and the previous value in `REPLY_SECRET_PREVIOUS`.
   4. After late answers that still use the old value have finished (up to `REPLY_TTL_S`), delete `REPLY_SECRET_PREVIOUS`.
-- **Revoke a device:** `POST /v1/admin/devices/revoke` with `ADMIN_TOKEN` and `{"device_id":"…"}` (confirm first). If a legacy `DEVICE_TOKENS` entry exists, remove it from that secret too. The next request gets `401`. To re-pair, the owner holds the device button for about 10 seconds to reopen the setup portal, and you issue a new pairing code.
+- **Revoke a device:** `POST /v1/admin/devices/revoke` with `ADMIN_TOKEN` and `{"device_id":"…"}` (confirm first). If a legacy `DEVICE_TOKENS` entry exists, remove it from that secret too. The next request gets `401`. Device NVS is not encrypted (decided), so revocation is the mitigation for a lost or stolen device. To re-pair, the owner reopens the setup portal: flip the case mute switch 5 times within about 5 seconds and leave it for 3 seconds (ring blinks blue), or hold BOOT (inside the case) for about 10 seconds and release; and you issue a new pairing code; re-pairing the same `device_id` invalidates the previous token.
+- **Factory reset (device):** flip the mute switch 10 times within about 10 seconds and leave it for 3 seconds (ring turns red), or hold BOOT for about 25 seconds (ring blinks red) and release. It erases Wi-Fi, server URL and token on the device. Revoke the device on the server too before it changes hands.
+- **Firmware updates:** there is no OTA. Updates are a USB flash by the owner; never flash on the owner's behalf.
 - **Turn memory or the agent off:** see steps 6 and 7. `ROUTINE_PROVIDER="off"` disables hand-off. `MEMORY_ENABLED=false` disables memory.
 - **Roll back code:** `npx wrangler rollback`, or `wrangler deployments list` and then `wrangler rollback <id>`. Confirm first. Secrets are not rolled back.
 - **Remove everything:** `npx wrangler delete <name>`. Confirm explicitly, because this deletes the Durable Object data. Then the owner revokes the API keys and any GitHub token at the providers.

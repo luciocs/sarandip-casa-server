@@ -18,9 +18,13 @@ Internal notes for this package. Not required in a public README. Status after t
 12. **Documentação.** `PROTOCOL.md` e `README.md` em inglês e generalizados. Protocolo `sarandip-ws-1`, com `luva-ws-1` aceito no `hello`. `AGENT.md` atualizado.
 13. **Testes.** Pareamento, TZ, `MEMORY_ENABLED`, rotação dupla do `REPLY_SECRET`, status, token não impresso, conectores openai/anthropic, webhook 2xx.
 
-## Firmware — fora deste pacote (frente de firmware)
+## Firmware — pacote irmão `../sarandip-casa-firmware`
 
-Os 7 itens de firmware do rascunho continuam abertos: portal cativo `Sarandip-Setup`, gesto de reabrir (~10 s), credenciais na NVS, chamada de pareamento no dispositivo (o contrato do servidor já está congelado), wake word genérica e licença do modelo, medição de heap, sem OTA sem o ok do Lucio.
+Os 7 itens de firmware foram implementados lá (portal cativo `Sarandip-Setup`, gestos para reabrir o setup e para factory reset (chave de mudo: 5 trocas em 5 s / 10 em 10 s; BOOT: 10 s / 25 s), credenciais atômicas na NVS, pareamento contra o §2 do `PROTOCOL.md`, wake word `okay_nabu` com licença Apache-2.0 verificada, sem OTA). Teste de contrato de pareamento contra cópia local deste servidor: 14/14.
+
+Decisões do Lucio (20/11/2026 22:25): rede de setup aberta; wake word pública padrão `okay_nabu` (este servidor: `WAKE_WORD=okay_nabu`, `WAKE_DISPLAY=Okay Nabu`); token na NVS sem criptografia, mitigação = revogação no servidor; factory reset 25 s; Adafruit NeoPixel LGPL-3.0 aprovada.
+
+Pendente: medição de heap e teste na placa real (sem flash sem o Lucio).
 
 ## Checklist de limpeza (servidor)
 
