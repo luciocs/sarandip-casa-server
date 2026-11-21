@@ -1,0 +1,59 @@
+{
+  "name": "sarandip-casa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sarandip Casa voice server (Cloudflare Worker)",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run && node test/token-tool.spec.mjs && vitest run -c vitest.live.config.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "dev": "wrangler dev --local -c wrangler.example.toml",
+    "token": "node tools/token.mjs",
+    "check": "wrangler deploy --dry-run --outdir dist -c wrangler.example.toml"
+  },
+  "keywords": ["cloudflare-worker", "voice", "durable-objects"],
+  "author": "",
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.9.0",
+    "@cloudflare/workers-types": "^5.20261120.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.12",
+    "wrangler": "^4.166.0"
+  },
+  "allowScripts": {
+    "workerd@1.20261119.1": true,
+    "esbuild@0.28.2": true
+  },
+  "cloudflare": {
+    "bindings": {
+      "XAI_API_KEY": {
+        "description": "xAI API key for fast spoken answers. Create it in the xAI console."
+      },
+      "ELEVENLABS_API_KEY": {
+        "description": "ElevenLabs API key for speech-to-text and text-to-speech."
+      },
+      "REPLY_SECRET": {
+        "description": "Long random string (>= 16 characters). Your agent uses it as a Bearer token on POST /bloco/reply. Generate with `openssl rand -base64 32`. Never put this value in routine or agent instructions."
+      },
+      "ADMIN_TOKEN": {
+        "description": "Long random string (>= 16 characters) that protects pairing-code and revoke admin routes. Generate with `openssl rand -base64 32`."
+      },
+      "WEBHOOK_URL": {
+        "description": "Optional HTTPS URL for agent hand-off (Grok Bot routine, OpenClaw, or any webhook)."
+      },
+      "WEBHOOK_TOKEN": {
+        "description": "Optional Bearer token for the agent webhook."
+      },
+      "GITHUB_TOKEN": {
+        "description": "Optional. Only needed for a *private* memory repository. Public repos are read without a token."
+      },
+      "OPENAI_API_KEY": {
+        "description": "Optional. Used when ROUTINE_PROVIDER=openai (any OpenAI-compatible base URL)."
+      },
+      "ANTHROPIC_API_KEY": {
+        "description": "Optional. Used when ROUTINE_PROVIDER=anthropic."
+      }
+    }
+  }
+}

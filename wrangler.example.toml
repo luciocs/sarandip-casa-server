@@ -1,0 +1,76 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copy to wrangler.toml (gitignored) and adjust. Do not put account_id, personal
+# URLs or secrets in this file. Set CLOUDFLARE_ACCOUNT_ID in the environment.
+# PUBLIC_BASE_URL may be left empty: the Worker then uses the request origin.
+name = "sarandip-casa"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+[vars]
+ASSISTANT_NAME = "Sarandip"
+DEVICE_KIND = "device"
+WAKE_WORD = "hey_sarandip"
+WAKE_DISPLAY = "Hey, Sarandip"
+LANGUAGE = "en"
+TZ = "UTC"
+# "elevenlabs" | "stub"
+STT_PROVIDER = "elevenlabs"
+ELEVENLABS_STT_MODEL = "scribe_v2"
+# "xai" | "stub"
+LLM_PROVIDER = "xai"
+XAI_MODEL = "grok-4.20-0309-non-reasoning"
+XAI_MAX_TOKENS = "160"
+XAI_TIMEOUT_MS = "4000"
+ESCALATE_MARK = "<<AGENT>>"
+# "elevenlabs" | "stub"
+TTS_PROVIDER = "elevenlabs"
+ELEVENLABS_TTS_MODEL = "eleven_v4_turbo"
+ELEVENLABS_TTS_FALLBACK_MODEL = "eleven_flash_v2_5"
+# Voice ids are not secret. Leave empty until the owner chooses a voice.
+ELEVENLABS_VOICE_ID = ""
+TTS_LANGUAGE_CODE = "en"
+# "webhook" | "openai" | "anthropic" | "stub" | "off"
+# OpenClaw and a Grok Bot routine both use "webhook".
+ROUTINE_PROVIDER = "off"
+ROUTINE_TIMEOUT_MS = "5000"
+ACK_TEXT = "On it, I'll get back to you."
+ROUTINE_FAIL_TEXT = "I couldn't reach your agent just now."
+# If empty, derived from the request origin. Set it when a late-reply webhook
+# must call a stable public URL.
+PUBLIC_BASE_URL = ""
+REPLY_TTL_S = "900"
+REPLY_RETRY_MAX = "3"
+# Memory is on by default and points at the fictional example repo.
+# Skip it with MEMORY_ENABLED = "false". The default example repo is public
+# and is read without a token. A private repo still needs GITHUB_TOKEN.
+MEMORY_ENABLED = "true"
+MEMORY_REPO = "luciocs/jarvis-memory-demo"
+MEMORY_PATH = "Agent.md"
+MEMORY_REF = "main"
+# Comma-separated headings. Defaults match the example Agent.md.
+MEMORY_SECTIONS = "## Quem sou,## Família,## Familia,## Tom e formato,### Tom e formato,## Perfil resumido"
+MEMORY_MAX_CHARS = "1400"
+MEMORY_TTL_S = "600"
+MEMORY_FETCH_TIMEOUT_MS = "800"
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+OPENAI_MODEL = "gpt-4o-mini"
+ANTHROPIC_BASE_URL = "https://api.anthropic.com"
+ANTHROPIC_MODEL = "claude-sonnet-4-5"
+PAIR_RATE_MAX = "10"
+PAIR_RATE_WINDOW_S = "300"
+
+[[durable_objects.bindings]]
+name = "DEVICE_HUB"
+class_name = "DeviceHub"
+
+[[durable_objects.bindings]]
+name = "DEVICE_REGISTRY"
+class_name = "DeviceRegistry"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DeviceHub", "DeviceRegistry"]
+
+[observability]
+enabled = true

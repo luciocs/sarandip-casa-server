@@ -1,0 +1,31 @@
+Sarandip Casa voice server
+Copyright (c) 2026 the Sarandip Casa contributors.
+
+This product is licensed under the GNU Affero General Public License
+v3.0 only (see LICENSE). Individual source files carry an
+SPDX-License-Identifier: AGPL-3.0-only header.
+
+The wire-protocol document PROTOCOL.md is licensed under the Apache
+License, Version 2.0 (see docs/LICENSE-APACHE-2.0.txt). It carries an
+SPDX-License-Identifier: Apache-2.0 header.
+
+This package does not redistribute a wake-word model. Wake-word
+licensing is a firmware concern and must be confirmed before a
+firmware repository is published.
+
+Third-party software used to build and test this project (devDependencies,
+not distributed as a runtime bundle of this Worker) includes, among others:
+
+- wrangler and @cloudflare/workers-types (Cloudflare, Apache-2.0 / related terms)
+- @cloudflare/vitest-plugin (Cloudflare)
+- vitest (MIT)
+- typescript (Apache-2.0)
+- workerd / esbuild (as pulled in by wrangler; see their own licenses)
+
+Cloudflare Workers, Durable Objects, xAI, ElevenLabs, GitHub, OpenAI,
+Anthropic, Grok Bot and OpenClaw are products of their respective owners.
+This project is not affiliated with them.
+
+The default memory repository name configured in wrangler.example.toml
+(luciocs/jarvis-memory-demo) is a fictional example profile hosted
+outside this package. It is not product identity of Sarandip.

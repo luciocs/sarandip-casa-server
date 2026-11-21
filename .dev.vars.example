@@ -1,0 +1,31 @@
+# Copy to .dev.vars (gitignored) for `wrangler dev` only.
+# In production use `wrangler secret put <NAME>` (nothing is echoed or committed).
+# The Deploy to Cloudflare button also reads this file to prompt for secrets.
+# Values here are placeholders, never real keys.
+
+# Required for live speech (not needed when *_PROVIDER=stub).
+XAI_API_KEY=your-xai-api-key
+ELEVENLABS_API_KEY=your-elevenlabs-api-key
+
+# Long random string (>= 16 chars). Your agent uses it on POST /bloco/reply.
+# During rotation, keep the previous value in REPLY_SECRET_PREVIOUS.
+REPLY_SECRET=generate-a-long-random-string
+# REPLY_SECRET_PREVIOUS=
+
+# Protects POST /v1/admin/pairing-codes and related admin routes (>= 16 chars).
+ADMIN_TOKEN=generate-a-long-random-string
+
+# Optional legacy map of device_id -> sha256 hex. Prefer pairing.
+# DEVICE_TOKENS={"dev_home01":"<sha256-hex>"}
+
+# Optional: agent hand-off webhook (ROUTINE_PROVIDER=webhook).
+# WEBHOOK_URL=https://example.com/webhook
+# WEBHOOK_TOKEN=your-webhook-bearer-token
+
+# Optional: private memory repo. Public repos (including the default example,
+# once it is public) work without this token.
+# GITHUB_TOKEN=your-fine-grained-github-token
+
+# Optional: native agent connectors.
+# OPENAI_API_KEY=your-openai-compatible-key
+# ANTHROPIC_API_KEY=your-anthropic-key
