@@ -21,6 +21,7 @@ export interface Env {
   XAI_MAX_TOKENS: string;
   XAI_TIMEOUT_MS: string;
   ESCALATE_MARK: string;
+  ESCALATE_PREROUTE?: string;
   TTS_PROVIDER: string;
   ELEVENLABS_TTS_MODEL: string;
   ELEVENLABS_TTS_FALLBACK_MODEL: string;

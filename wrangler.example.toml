@@ -25,6 +25,9 @@ XAI_MODEL = "grok-4.20-0309-non-reasoning"
 XAI_MAX_TOKENS = "160"
 XAI_TIMEOUT_MS = "4000"
 ESCALATE_MARK = "<<AGENT>>"
+# When ROUTINE_PROVIDER is not "off", pre-route calendar/email/tasks/reminders/messages
+# to the agent before calling xAI. Default is on. Clock questions stay on the fast path.
+ESCALATE_PREROUTE = "true"
 # "elevenlabs" | "stub"
 TTS_PROVIDER = "elevenlabs"
 ELEVENLABS_TTS_MODEL = "eleven_v4_turbo"

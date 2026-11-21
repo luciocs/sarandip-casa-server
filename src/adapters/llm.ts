@@ -6,6 +6,7 @@ import type { Env } from "../env";
 import { num } from "../env";
 import { clockLine, localClock, clockLang, type LocalClock } from "../clock";
 import { assistantName, deviceKind, memoryPreamble, memoryUnavailable, systemRules } from "../i18n";
+import { parseFlag } from "../config";
 import { XAI_URL, withTimeout, type FetchFn } from "./types";
 
 export type Turn = { role: "user" | "assistant"; content: string };
@@ -34,12 +35,50 @@ export function historyForLlm(history: Turn[]): Turn[] {
   return out.slice(-8);
 }
 
+/** Fold accents so "reunião" and "reuniao" match the same pattern. */
+export function foldAccents(s: string): string {
+  return s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+}
+
+export function routineProviderActive(env: Pick<Env, "ROUTINE_PROVIDER"> | { ROUTINE_PROVIDER?: string }): boolean {
+  const p = (env.ROUTINE_PROVIDER || "off").trim().toLowerCase();
+  return p !== "" && p !== "off";
+}
+
+/**
+ * Calendar, email, tasks, reminders, messages and other live personal data.
+ * Accent-insensitive. Does not match clock questions such as "que horas são" or "que dia é hoje".
+ */
+const LIVE_DATA_ASK = new RegExp(
+  [
+    String.raw`\b(agendas?|calendarios?|compromissos?|reunioes?|reuniao|agendar|agendamento|calendars?|appointments?|meetings?)\b`,
+    String.raw`\b(e-?mails?|caixa de entrada|inbox)\b`,
+    String.raw`\b(tarefas?|tasks?|to-?dos?|afazeres?|pendencias?)\b`,
+    String.raw`\b(lembretes?|reminders?|remind me)\b`,
+    String.raw`\b((me|nos) (lembra|lembre|relembra))\b`,
+    String.raw`\blembr(a|e|ar) d[eoa]s?\b`,
+    String.raw`\b(mensagens?|messages?|recados?|whatsapp|telegram|sms)\b`,
+    String.raw`\b(notificacoes?|notifications?)\b`,
+  ].join("|"),
+  "i",
+);
+
+export function isLiveDataAsk(text: string): boolean {
+  const folded = foldAccents(text);
+  if (LIVE_DATA_ASK.test(folded) && !/\bse lembr(a|e|ar) d[eoa]s?\b/i.test(folded)) return true;
+  return false;
+}
+
+export function prerouteEnabled(env: Pick<Env, "ROUTINE_PROVIDER" | "ESCALATE_PREROUTE"> | { ROUTINE_PROVIDER?: string; ESCALATE_PREROUTE?: string }): boolean {
+  return routineProviderActive(env) && parseFlag(env.ESCALATE_PREROUTE, true);
+}
+
 export function systemPrompt(env: Env, ctx: PromptCtx = { clock: localClock(), memory: "" }): string {
   const name = assistantName(env);
   const mark = env.ESCALATE_MARK || "<<AGENT>>";
   const kind = deviceKind(env);
   const language = env.LANGUAGE || "en";
-  const rules = systemRules(name, mark, kind, language);
+  const rules = systemRules(name, mark, kind, language, { agentConnected: routineProviderActive(env) });
   const mem = ctx.memory
     ? `${memoryPreamble(language)}\n${ctx.memory}`
     : memoryUnavailable(language);
@@ -53,6 +92,9 @@ export async function fastAnswer(
   fetchFn: FetchFn = fetch,
   ctx: PromptCtx = { clock: localClock(new Date(), env.TZ, env.LANGUAGE), memory: "" },
 ): Promise<FastResult> {
+  if (prerouteEnabled(env) && isLiveDataAsk(text)) {
+    return { kind: "escalate", pedido: text, reason: "preroute" };
+  }
   const mark = env.ESCALATE_MARK || "<<AGENT>>";
   const system = systemPrompt(env, ctx);
   const body = {
@@ -101,7 +143,7 @@ export async function fastAnswer(
 
 /** Test double. Date/time questions are answered from the clock line of the prompt it was given. */
 export function stubLlm(text: string, system: string, mark: string, language?: string): string {
-  if (/lembr|agenda|tarefa|e-?mail|remind|calendar|task|inbox/i.test(text)) return `${mark} ${text}`;
+  if (isLiveDataAsk(text)) return `${mark} ${text}`;
   if (/que dia|que horas|data de hoje|what day|what time|today.s date|what is the date/i.test(text)) {
     const m = /(?:Agora, no fuso|Now, in time zone) \S+ \(UTC[^)]*\): ([^.]+)\./.exec(system);
     if (!m) return clockLang(language) === "pt-BR" ? "Não sei a hora." : "I do not know the time.";

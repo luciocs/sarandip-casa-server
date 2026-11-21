@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { parseWav, wavHeader, guardPcmFrame, evenFrames, WavError } from "../src/wav";
 import { safeEqual, hexToBytes, authDevice, authReply, authReplyToken, mintReplyToken, sha256, bytesToHex } from "../src/auth";
 import { stubTranscribe, transcribe } from "../src/adapters/stt";
-import { fastAnswer, systemPrompt, historyForLlm } from "../src/adapters/llm";
+import { fastAnswer, systemPrompt, historyForLlm, isLiveDataAsk, prerouteEnabled } from "../src/adapters/llm";
 import { synthesize } from "../src/adapters/tts";
 import { triggerRoutine, completeNativeRoutine, webhookHeaders } from "../src/adapters/routine";
 import { failText, ackText } from "../src/i18n";
@@ -159,10 +159,68 @@ describe("adapters (real request shapes, fake network)", () => {
     expect(body.messages[0].role).toBe("system");
     expect(body.messages[0].content).toContain("Sarandip");
     expect((calls[0].init.headers as Record<string, string>).authorization).toBe("Bearer xai-k");
-    const e = await fastAnswer(baseEnv(), "agenda", [], fakeFetch(() => Response.json({ choices: [{ message: { content: "<<AGENT>> ver agenda" } }] }), []));
+    const e = await fastAnswer(baseEnv({ ESCALATE_PREROUTE: "false" }), "agenda", [], fakeFetch(() => Response.json({ choices: [{ message: { content: "<<AGENT>> ver agenda" } }] }), []));
     expect(e).toEqual({ kind: "escalate", pedido: "ver agenda", reason: "mark" });
     const f = await fastAnswer(baseEnv(), "x", [], fakeFetch(() => new Response("no", { status: 500 }), []));
     expect(f.kind).toBe("escalate");
+  });
+  it("preroutes live personal-data questions to the agent without calling xAI when a provider is on", async () => {
+    const calls: Call[] = [];
+    const fetch = fakeFetch(() => Response.json({ choices: [{ message: { content: "Não consta agenda para amanhã." } }] }), calls);
+    const phrases = [
+      "O que eu tenho na agenda pra amanhã?",
+      "O que tem na agenda pra hoje?",
+      "Tenho alguma reunião hoje?",
+      "Qual o meu próximo compromisso?",
+      "Chegou e-mail novo?",
+      "Quais são as minhas tarefas?",
+      "Me lembra de pagar a conta",
+      "Lembra de comprar pão amanhã",
+      "Tem mensagem nova no WhatsApp?",
+      "What's on my calendar tomorrow?",
+      "Any reminders or tasks in my inbox?",
+    ];
+    for (const q of phrases) {
+      expect(isLiveDataAsk(q), q).toBe(true);
+      const r = await fastAnswer(baseEnv(), q, [], fetch);
+      expect(r, q).toEqual({ kind: "escalate", pedido: q, reason: "preroute" });
+    }
+    expect(calls).toHaveLength(0);
+
+    const clock = ["Que horas são?", "que dia é hoje", "What time is it?", "What's today's date?"];
+    for (const q of clock) {
+      expect(isLiveDataAsk(q), q).toBe(false);
+    }
+    const hours = await fastAnswer(baseEnv(), "Que horas são?", [], fakeFetch(() => Response.json({ choices: [{ message: { content: "São 19:31." } }] }), calls));
+    expect(hours).toEqual({ kind: "answer", text: "São 19:31." });
+    expect(calls).toHaveLength(1);
+
+    const offCalls: Call[] = [];
+    const off = await fastAnswer(
+      baseEnv({ ROUTINE_PROVIDER: "off" }),
+      "O que eu tenho na agenda pra amanhã?",
+      [],
+      fakeFetch(() => Response.json({ choices: [{ message: { content: "Não consta agenda para amanhã." } }] }), offCalls),
+    );
+    expect(off).toEqual({ kind: "answer", text: "Não consta agenda para amanhã." });
+    expect(offCalls).toHaveLength(1);
+    expect(prerouteEnabled(baseEnv({ ROUTINE_PROVIDER: "webhook", ESCALATE_PREROUTE: "false" }))).toBe(false);
+    expect(prerouteEnabled(baseEnv({ ROUTINE_PROVIDER: "off" }))).toBe(false);
+    expect(isLiveDataAsk("lembra do dentista")).toBe(true);
+    expect(isLiveDataAsk("você se lembra de mim?")).toBe(false);
+    expect(isLiveDataAsk("você se lembra do meu nome?")).toBe(false);
+  });
+  it("system rules treat memory as a static snapshot only when an agent is connected", () => {
+    const on = systemPrompt(baseEnv({ LANGUAGE: "pt-BR", ROUTINE_PROVIDER: "webhook" }));
+    expect(on).toMatch(/instantâneo estático/);
+    expect(on).toMatch(/Nunca responda agenda/);
+    expect(on).toContain("<<AGENT>>");
+    const en = systemPrompt(baseEnv({ LANGUAGE: "en", ROUTINE_PROVIDER: "webhook" }));
+    expect(en).toMatch(/static snapshot/);
+    expect(en).toMatch(/Never answer calendar/);
+    const off = systemPrompt(baseEnv({ LANGUAGE: "pt-BR", ROUTINE_PROVIDER: "off" }));
+    expect(off).toMatch(/Responda direto o que der para responder/);
+    expect(off).not.toMatch(/instantâneo estático/);
   });
   it("failText/ackText use LANGUAGE defaults when wrangler still has the English canned lines", () => {
     expect(failText({ LANGUAGE: "pt-BR", ROUTINE_FAIL_TEXT: "I couldn't reach your agent just now." })).toBe("Não consegui falar com o agente agora.");
@@ -187,6 +245,7 @@ describe("adapters (real request shapes, fake network)", () => {
     const sys = systemPrompt(baseEnv({ LANGUAGE: "en", ASSISTANT_NAME: "Sarandip" }));
     expect(sys).toMatch(/You are Sarandip/);
     expect(sys).toMatch(/Answer in English/);
+    expect(sys).toMatch(/static snapshot/);
     expect(sys).not.toMatch(/português do Brasil/);
   });
   it("ElevenLabs TTS: /stream?output_format=pcm_16000, fallback model on error before first byte", async () => {

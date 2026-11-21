@@ -325,7 +325,7 @@ Authenticated. `online` is true only when a WebSocket for that device is open **
 
 The system prompt of every turn has three parts:
 
-1. **Rules.** The assistant name (`ASSISTANT_NAME`, default `Sarandip`) and device kind (`DEVICE_KIND`, default `device`). Prompts are in English or Brazilian Portuguese according to `LANGUAGE`. The model escalates with `ESCALATE_MARK` (default `<<AGENT>>`) for calendar, email, tasks, tools, live data, or memory that is not in the block.
+1. **Rules.** The assistant name (`ASSISTANT_NAME`, default `Sarandip`) and device kind (`DEVICE_KIND`, default `device`). Prompts are in English or Brazilian Portuguese according to `LANGUAGE`. When `ROUTINE_PROVIDER` is not `off` and `ESCALATE_PREROUTE` is on (the default), calendar, email, tasks, reminders, messages and other live personal data are pre-routed to the agent before the fast model is called. Clock questions stay on the fast path. The system prompt also tells the model that memory is a static snapshot and must not be used to answer those questions; the model still escalates with `ESCALATE_MARK` (default `<<AGENT>>`) for tools, live data, or memory that is not in the block. When the provider is `off`, the fast model may answer from memory as before.
 2. **Clock.** Computed every turn from `TZ` (IANA, default `UTC`) and `LANGUAGE`. Never cached.
 3. **Memory.** Read from `Agent.md` in `MEMORY_REPO` (`owner/name`). Default repo: `luciocs/jarvis-memory-demo` (fictional example). Default headings: `## Quem sou`, `## Família` / `## Familia`, `## Tom e formato` / `### Tom e formato`, `## Perfil resumido`. Override with `MEMORY_SECTIONS`. Lines that look like secrets are dropped. Cap: `MEMORY_MAX_CHARS` (1400).
 

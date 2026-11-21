@@ -50,22 +50,31 @@ export function failText(env: Pick<Env, "ROUTINE_FAIL_TEXT" | "LANGUAGE">): stri
   return spokenOrDefault(env.ROUTINE_FAIL_TEXT, env.LANGUAGE, defaultRoutineFail, "I couldn't reach your agent just now.");
 }
 
-export function systemRules(name: string, mark: string, kind: string, language: string): string {
+export function systemRules(
+  name: string,
+  mark: string,
+  kind: string,
+  language: string,
+  opts: { agentConnected?: boolean } = {},
+): string {
+  const connected = !!opts.agentConnected;
   if (clockLang(language) === "pt-BR") {
+    const memoryLine = connected
+      ? "A memória abaixo é um instantâneo estático, não a agenda, o e-mail, as tarefas nem os dados ao vivo. Nunca responda agenda, e-mail, tarefas, lembretes, mensagens ou dados ao vivo a partir da memória: responda só " + mark + " seguido do pedido reescrito em uma frase."
+      : "Responda direto o que der para responder com conhecimento geral, com a memória abaixo ou com o relógio abaixo. Se o pedido exigir agenda, e-mail, tarefas, ferramentas, dados ao vivo ou memória que não está abaixo, não invente: responda só " + mark + " seguido do pedido reescrito em uma frase.";
     return [
       `Você é ${name}, a voz de um ${kind} assistente. Responda em português do Brasil,`,
       "em uma ou duas frases curtas faladas, sem markdown, listas, emojis ou links.",
-      "Responda direto o que der para responder com conhecimento geral, com a memória abaixo ou com o relógio abaixo.",
-      `Se o pedido exigir agenda, e-mail, tarefas, ferramentas, dados ao vivo ou memória que não está abaixo,`,
-      `não invente: responda só ${mark} seguido do pedido reescrito em uma frase.`,
+      memoryLine,
     ].join(" ");
   }
+  const memoryLine = connected
+    ? "The memory below is a static snapshot, not the calendar, email, tasks or live data. Never answer calendar, email, tasks, reminders, messages or live data from memory: reply only with " + mark + " followed by the request rewritten in one sentence."
+    : "Answer directly anything you can from general knowledge, the memory below or the clock below. If the request needs a calendar, email, tasks, tools, live data or memory that is not below, do not invent: reply only with " + mark + " followed by the request rewritten in one sentence.";
   return [
     `You are ${name}, the voice of a ${kind} assistant. Answer in English,`,
     "in one or two short spoken sentences, with no markdown, lists, emoji or links.",
-    "Answer directly anything you can from general knowledge, the memory below or the clock below.",
-    `If the request needs a calendar, email, tasks, tools, live data or memory that is not below,`,
-    `do not invent: reply only with ${mark} followed by the request rewritten in one sentence.`,
+    memoryLine,
   ].join(" ");
 }
 
