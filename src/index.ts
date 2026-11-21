@@ -10,6 +10,7 @@ import { memoryConfigured } from "./memory";
 import { clampTtl, clientKey } from "./registry";
 import { PROTOCOL, publicBase, wsUrl } from "./config";
 import { resolveTz } from "./clock";
+import { WELCOME_MAX_BYTES, WelcomeError, welcomePcmFrom } from "./welcome";
 
 export { DeviceHub } from "./hub";
 export { DeviceRegistry } from "./registry";
@@ -82,6 +83,8 @@ async function pairDevice(req: Request, env: Env, origin: string): Promise<Respo
     if (r.retry_after_s) extra["retry-after"] = String(r.retry_after_s);
     return json({ error: r.error }, status, extra);
   }
+  // Welcome audio on the first WebSocket session after this pairing. Never blocks pairing.
+  try { await hub(env, r.device_id).armWelcome(); } catch { /* best effort */ }
   const base = publicBase(env.PUBLIC_BASE_URL, origin);
   return json({
     device_id: r.device_id,
@@ -101,6 +104,44 @@ async function revokeDevice(req: Request, env: Env): Promise<Response> {
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) return json({ error: "bad_request" }, 400);
   const ok = await registry(env).revoke(deviceId);
   return json({ revoked: ok, device_id: deviceId }, ok ? 200 : 404);
+}
+
+/** PUT a WAV (PCM16 mono 16 kHz, <= 1 MiB) / GET metadata only / DELETE. Admin only. The clip is never served back. */
+async function welcomeAudioAdmin(req: Request, env: Env): Promise<Response> {
+  if (!(await authAdmin(req, env))) return json({ error: "unauthorized" }, 401);
+  const reg = registry(env);
+  if (req.method === "GET") {
+    const i = await reg.welcomeClipInfo();
+    return json({ present: i.present, bytes: i.bytes, audio_ms: Math.round(i.bytes / 32), updated_at: i.updated_ms ? new Date(i.updated_ms).toISOString() : null });
+  }
+  if (req.method === "DELETE") return json({ deleted: await reg.welcomeClipDelete() });
+  if (req.method !== "PUT" && req.method !== "POST") return json({ error: "method" }, 405);
+  const len = Number(req.headers.get("content-length") ?? "0");
+  if (len > WELCOME_MAX_BYTES + 1024) return json({ error: "too large" }, 413);
+  const buf = new Uint8Array(await req.arrayBuffer());
+  if (buf.byteLength > WELCOME_MAX_BYTES + 1024) return json({ error: "too large" }, 413);
+  const ctype = (req.headers.get("content-type") ?? "").toLowerCase();
+  let pcm: Uint8Array;
+  try {
+    pcm = welcomePcmFrom(buf, ctype.includes("audio/pcm") || ctype.includes("audio/l16"));
+  } catch (e) {
+    const msg = e instanceof WelcomeError ? e.message : "bad audio";
+    return json({ error: "bad_audio", detail: msg }, msg === "clip too long" ? 413 : 400);
+  }
+  const r = await reg.welcomeClipPut(pcm);
+  return json({ stored: true, bytes: r.bytes, audio_ms: Math.round(r.bytes / 32) });
+}
+
+/** Re-arm the welcome for one device (plays now if it is online, else on its next connection). */
+async function rearmWelcome(req: Request, env: Env): Promise<Response> {
+  if (req.method !== "POST") return json({ error: "method" }, 405);
+  if (!(await authAdmin(req, env))) return json({ error: "unauthorized" }, 401);
+  let b: { device_id?: unknown };
+  try { b = await req.json(); } catch { return json({ error: "bad_json" }, 400); }
+  const deviceId = typeof b.device_id === "string" ? b.device_id : "";
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) return json({ error: "bad_request" }, 400);
+  const r = await hub(env, deviceId).armWelcome();
+  return json({ device_id: deviceId, ...r });
 }
 
 async function deviceStatus(req: Request, env: Env): Promise<Response> {
@@ -129,6 +170,8 @@ export default {
       if (path === "/v1/admin/devices/revoke") return revokeDevice(req, env);
       if (path === "/v1/devices/pair") return pairDevice(req, env, url.origin);
       if (path === "/v1/devices/status") return deviceStatus(req, env);
+      if (path === "/v1/admin/welcome-audio") return welcomeAudioAdmin(req, env);
+      if (path === "/v1/admin/devices/welcome") return rearmWelcome(req, env);
 
       if (path === "/bloco/reply") {
         if (req.method !== "POST") return json({ error: "method" }, 405);

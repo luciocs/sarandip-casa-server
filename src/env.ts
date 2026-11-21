@@ -45,6 +45,10 @@ export interface Env {
   ANTHROPIC_MODEL: string;
   PAIR_RATE_MAX: string;
   PAIR_RATE_WINDOW_S: string;
+  WELCOME_MODE?: string;
+  WELCOME_TEXT?: string;
+  WELCOME_AUDIO_URL?: string;
+  WELCOME_DELAY_MS?: string;
   // secrets (wrangler secret put)
   XAI_API_KEY?: string;
   ELEVENLABS_API_KEY?: string;
@@ -57,6 +61,7 @@ export interface Env {
   GITHUB_TOKEN?: string;
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
+  WELCOME_AUDIO_TOKEN?: string;
 }
 
 export const num = (v: string | undefined, d: number): number => {

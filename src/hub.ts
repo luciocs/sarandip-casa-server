@@ -13,6 +13,8 @@ import { synthesize } from "./adapters/tts";
 import type { Turn } from "./adapters/llm";
 import { evenFrames, guardPcmFrame, pcmMs, SR } from "./wav";
 import type { MemoryPack } from "./memory";
+import { welcomeAudio, welcomeDelayMs, welcomeMode } from "./welcome";
+import { registry } from "./registryref";
 
 export const WS_FRAME_BYTES = 8192; // 256 ms of PCM16 16 kHz; device cap TTS_BIN_MAX is 32768
 export const WS_MAX_IN = 64 * 1024; // control JSON from the device is < 1 KB
@@ -46,7 +48,7 @@ export class DeviceHub extends DurableObject<Env> {
       id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, keyword TEXT, score REAL, max REAL, win INTEGER, fw TEXT)`);
     this.sql.exec("CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT NOT NULL)");
     const cols = new Set(this.sql.exec("PRAGMA table_info(turns)").toArray().map((r) => String(r.name)));
-    for (const [c, def] of [["reply_text", "TEXT"], ["attempts", "INTEGER NOT NULL DEFAULT 0"], ["stream", "INTEGER"], ["played_ms", "INTEGER"], ["result", "TEXT"]]) {
+    for (const [c, def] of [["kind", "TEXT"], ["reply_text", "TEXT"], ["attempts", "INTEGER NOT NULL DEFAULT 0"], ["stream", "INTEGER"], ["played_ms", "INTEGER"], ["result", "TEXT"]]) {
       if (!cols.has(c)) this.sql.exec(`ALTER TABLE turns ADD COLUMN ${c} ${def}`);
     }
     // Bare app ping is answered without waking the object.
@@ -89,20 +91,24 @@ export class DeviceHub extends DurableObject<Env> {
       // Hello stays backward compatible: protocol is optional. The current name is
       // advertised here; the legacy alias is still accepted if a client sends it.
       this.send(ws, { v: 1, type: "hello_ack", session_id: crypto.randomUUID(), filter_version: "casa-1", server: "sarandip-casa/0.1", protocol: "sarandip-ws-1", reply_audio: "pcm_s16le_16000" });
+      await this.scheduleWelcome();
       return;
     }
     if (!a.hello) { ws.close(4400, "hello first"); return; }
     if (type === "ping") { this.send(ws, { v: 1, type: "pong" }); return; }
     if (type === "pong") return;
     if (type === "heartbeat") {
+      const was = a.muted;
       a.lastHb = Date.now();
       if (typeof j.muted === "boolean") a.muted = j.muted;
       ws.serializeAttachment(a);
+      if (was && !a.muted) await this.scheduleWelcome();
       return;
     }
     if (type === "mute" || type === "unmute") {
       a.muted = type === "mute";
       ws.serializeAttachment(a);
+      if (!a.muted) await this.scheduleWelcome();
       return;
     }
     if (type === "tts_played" || type === "tts_dropped") {
@@ -188,6 +194,56 @@ export class DeviceHub extends DurableObject<Env> {
     this.sql.exec("INSERT OR REPLACE INTO kv(k, v) VALUES ('memory', ?)", JSON.stringify(p));
   }
 
+  // ---------- welcome (once per pairing) ----------
+  private welcomeState(): string {
+    const r = this.sql.exec("SELECT v FROM kv WHERE k = 'welcome'").toArray()[0];
+    return r ? String(r.v) : "";
+  }
+
+  private setWelcomeState(v: string): void {
+    this.sql.exec("INSERT OR REPLACE INTO kv(k, v) VALUES ('welcome', ?)", v);
+  }
+
+  /** Called by the Worker right after a successful pairing (or by the admin re-arm route). */
+  async armWelcome(): Promise<{ armed: boolean; online: boolean }> {
+    if (welcomeMode(this.env) === "off") return { armed: false, online: !!this.socket() };
+    this.setWelcomeState("armed");
+    const online = !!this.socket();
+    if (online) await this.scheduleWelcome();
+    return { armed: true, online };
+  }
+
+  async welcomeInfo(): Promise<{ state: string; mode: string }> {
+    return { state: this.welcomeState() || "none", mode: welcomeMode(this.env) };
+  }
+
+  /** After hello or unmute: if a welcome is armed, play it shortly (alarm), so hello_ack is never delayed. */
+  private async scheduleWelcome(): Promise<void> {
+    if (this.welcomeState() !== "armed" || welcomeMode(this.env) === "off") return;
+    const at = Date.now() + welcomeDelayMs(this.env);
+    const cur = await this.ctx.storage.getAlarm();
+    if (cur === null || cur > at) await this.ctx.storage.setAlarm(at);
+  }
+
+  private welcomeStream(): Promise<ReadableStream<Uint8Array>> {
+    return welcomeAudio(this.env, () => registry(this.env).welcomeClipGet());
+  }
+
+  /** Caller holds the chain. Offline or muted: stays armed (next hello / unmute). Delivered: done. */
+  private async sendWelcome(): Promise<DeliverStatus | "off"> {
+    if (welcomeMode(this.env) === "off") { this.setWelcomeState("off"); return "off"; }
+    const s = this.socket();
+    if (!s) return "offline";
+    if (s.a.muted) return "muted";
+    const hex = [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const turnId = `t_${hex}`;
+    this.sql.exec("INSERT INTO turns(turn_id, created_ms, text, kind) VALUES (?, ?, '', 'welcome')", turnId, Date.now());
+    const r = await this.push(turnId, () => this.welcomeStream());
+    if (r.status === "delivered") this.setWelcomeState(`done:${turnId}`);
+    else this.sql.exec("DELETE FROM turns WHERE turn_id = ? AND status = 'pending'", turnId);
+    return r.status;
+  }
+
   // ---------- late replies ----------
   private serial<T>(fn: () => Promise<T>): Promise<T> {
     const p = this.chain.then(fn, fn);
@@ -215,14 +271,14 @@ export class DeviceHub extends DurableObject<Env> {
       if (row.status !== "pending") return { status: "already_delivered" as const };
       if (Date.now() - (row.created_ms as number) > this.ttlMs()) return { status: "expired" as const };
       this.sql.exec("UPDATE turns SET reply_text = ? WHERE turn_id = ?", text, turnId);
-      const r = await this.push(turnId, text);
+      const r = await this.push(turnId, () => synthesize(this.env, text));
       if (r.status === "delivered") await this.remember("", text).catch(() => undefined);
       return r;
     });
   }
 
   /** Sends one reply on the socket. Caller holds the chain. Offline/muted/tts_error leave the status as it was. */
-  private async push(turnId: string, text: string): Promise<{ status: DeliverStatus; audio_ms?: number }> {
+  private async push(turnId: string, audio: () => Promise<ReadableStream<Uint8Array>>): Promise<{ status: DeliverStatus; audio_ms?: number }> {
     const s = this.socket();
     if (!s) return { status: "offline" };
     if (s.a.muted) return { status: "muted" };
@@ -230,7 +286,7 @@ export class DeviceHub extends DurableObject<Env> {
     this.sql.exec("UPDATE turns SET status='sending' WHERE turn_id=?", turnId);
     let body: ReadableStream<Uint8Array>;
     try {
-      body = await synthesize(this.env, text);
+      body = await audio();
     } catch {
       this.sql.exec("UPDATE turns SET status=? WHERE turn_id=?", prev, turnId);
       return { status: "tts_error" };
@@ -276,16 +332,21 @@ export class DeviceHub extends DurableObject<Env> {
   /** Resends replies the device dropped because it was busy with a turn. */
   async alarm(): Promise<void> {
     await this.serial(async () => {
-      const rows = this.sql.exec("SELECT turn_id, created_ms, reply_text FROM turns WHERE status='retry' ORDER BY created_ms").toArray();
+      const rows = this.sql.exec("SELECT turn_id, created_ms, reply_text, kind FROM turns WHERE status='retry' ORDER BY created_ms").toArray();
       let again = false;
       for (const r of rows) {
         const id = String(r.turn_id);
-        if (Date.now() - (r.created_ms as number) > this.ttlMs() || !r.reply_text) {
+        const isWelcome = r.kind === "welcome";
+        if (Date.now() - (r.created_ms as number) > this.ttlMs() || (!r.reply_text && !isWelcome)) {
           this.sql.exec("UPDATE turns SET status='dropped', result='expired', reply_text=NULL WHERE turn_id=?", id);
           continue;
         }
-        const res = await this.push(id, String(r.reply_text));
+        const res = await this.push(id, isWelcome ? () => this.welcomeStream() : () => synthesize(this.env, String(r.reply_text)));
         if (res.status !== "delivered") again = true; // offline/muted/tts_error: stays 'retry'
+      }
+      if (this.welcomeState() === "armed") {
+        // Offline, muted or audio failure: stays armed and is tried again on the next hello / unmute.
+        await this.sendWelcome();
       }
       if (again) await this.ctx.storage.setAlarm(Date.now() + RETRY_DELAYS_MS[1]);
     });

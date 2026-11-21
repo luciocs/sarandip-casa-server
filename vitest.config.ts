@@ -30,6 +30,9 @@ export default defineConfig({
           ADMIN_TOKEN: "admin-token-for-tests-only-0001",
           PAIR_RATE_MAX: "10",
           PAIR_RATE_WINDOW_S: "300",
+          // "audio" exercises both paths: the uploaded clip and the spoken fallback.
+          WELCOME_MODE: "audio",
+          WELCOME_DELAY_MS: "300",
           DEVICE_TOKENS: JSON.stringify({ dev_home01: TEST_TOKEN_SHA, dev_other: "0".repeat(64) }),
         },
       },

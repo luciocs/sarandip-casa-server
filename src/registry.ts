@@ -76,6 +76,31 @@ export class DeviceRegistry extends DurableObject<Env> {
       device_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, fw_version TEXT, paired_ms INTEGER NOT NULL)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS rate_limits(
       k TEXT PRIMARY KEY, window_start_ms INTEGER NOT NULL, n INTEGER NOT NULL)`);
+    // Owner's welcome clip (PCM16 mono 16 kHz, no header). Private: never served back.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS welcome_clip(
+      id INTEGER PRIMARY KEY CHECK (id = 1), pcm BLOB NOT NULL, bytes INTEGER NOT NULL, updated_ms INTEGER NOT NULL)`);
+  }
+
+  async welcomeClipPut(pcm: Uint8Array): Promise<{ bytes: number }> {
+    const copy = pcm.slice().buffer;
+    this.sql.exec("INSERT OR REPLACE INTO welcome_clip(id, pcm, bytes, updated_ms) VALUES (1, ?, ?, ?)", copy, pcm.byteLength, Date.now());
+    return { bytes: pcm.byteLength };
+  }
+
+  async welcomeClipGet(): Promise<Uint8Array | null> {
+    const r = this.sql.exec("SELECT pcm FROM welcome_clip WHERE id = 1").toArray()[0];
+    if (!r) return null;
+    return new Uint8Array(r.pcm as ArrayBuffer);
+  }
+
+  async welcomeClipInfo(): Promise<{ present: boolean; bytes: number; updated_ms: number | null }> {
+    const r = this.sql.exec("SELECT bytes, updated_ms FROM welcome_clip WHERE id = 1").toArray()[0];
+    return r ? { present: true, bytes: r.bytes as number, updated_ms: r.updated_ms as number } : { present: false, bytes: 0, updated_ms: null };
+  }
+
+  async welcomeClipDelete(): Promise<boolean> {
+    this.sql.exec("DELETE FROM welcome_clip WHERE id = 1");
+    return ((this.sql.exec("SELECT changes() AS n").toArray()[0]?.n as number) ?? 0) > 0;
   }
 
   async issueCode(ttlS: number): Promise<{ pairing_code: string; expires_in: number; expires_at: string }> {

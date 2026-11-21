@@ -163,6 +163,13 @@ The owner-facing steps live in the firmware package: `../sarandip-casa-firmware/
 
 Do not flash anything. If the device does not run the Sarandip Casa firmware yet, stop and tell the owner.
 
+### 9a. Welcome audio (optional)
+
+The welcome plays once on the first connection after pairing. Default: `WELCOME_MODE = "tts"` with the default line for `LANGUAGE`. Ask the owner whether they want the default line, their own text (`WELCOME_TEXT`), their own clip, or nothing (`WELCOME_MODE = "off"`).
+
+- Own clip: convert it to WAV PCM16 mono 16 kHz (`ffmpeg -i in.mp3 -ac 1 -ar 16000 -c:a pcm_s16le welcome.wav`, at most about 32 s), set `WELCOME_MODE = "audio"`, redeploy, and upload it with `curl -X PUT --data-binary @welcome.wav -H "content-type: audio/wav" -H "authorization: Bearer $ADMIN_TOKEN" <base>/v1/admin/welcome-audio` (read `ADMIN_TOKEN` from the environment; never print it). Only use audio the owner has the right to use; keep the clip out of any repository.
+- **Verify:** `GET /v1/admin/welcome-audio` (admin) shows `present: true` and the duration. To replay: `POST /v1/admin/devices/welcome` with `{"device_id":"…"}`.
+
 ## 10. Rotation, revocation, rollback
 
 - **Rotate an API key:** the owner creates a new key at the provider. You store it with `wrangler secret put` (it takes effect without a code change), then the owner revokes the old key.

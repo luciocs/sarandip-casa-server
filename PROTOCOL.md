@@ -242,6 +242,10 @@ Device → server (already in current firmware):
   - `muted` or `format`: final (`dropped`), no resend.
 - If neither arrives, the turn stays `delivered` (older firmware). That remains compatible.
 
+### Welcome (server-initiated, once per pairing)
+
+A successful `POST /v1/devices/pair` arms a one-time welcome for that `device_id`. After the next `hello` (and after `WELCOME_DELAY_MS`, default 2000 ms, so `hello_ack` is never delayed), the server sends it exactly like a late reply: `tts_start` (`phase:"final"`, a fresh `turn_id` `t_<16 hex>`), binary PCM frames, `tts_end`. The device handles it with the existing late-reply code and answers `tts_played` / `tts_dropped` as usual; `busy_turn` is resent by the same alarm schedule. If the device is offline or muted, the welcome stays armed and goes out on the next `hello` or `unmute`. It is never sent twice for one pairing. `WELCOME_MODE = "off"` disables it. Admin routes (`Authorization: Bearer <ADMIN_TOKEN>`): `PUT|GET|DELETE /v1/admin/welcome-audio` (owner clip, WAV PCM16 mono 16 kHz ≤ 1 MiB; `GET` returns metadata only) and `POST /v1/admin/devices/welcome` `{"device_id"}` (re-arm).
+
 **Serialization:** each device Durable Object sends one reply at a time. Two concurrent `/bloco/reply` calls are queued: frames never interleave, and the same `turn_id` goes out once (the second gets `409 already_delivered`). `stream` is a monotonic counter persisted in the object.
 
 Turn states: `pending` → `sending` → `delivered` → `played` | `retry` (→ `delivered` …) | `dropped`.

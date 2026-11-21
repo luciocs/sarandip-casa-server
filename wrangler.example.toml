@@ -61,6 +61,14 @@ ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 ANTHROPIC_MODEL = "claude-sonnet-4-5"
 PAIR_RATE_MAX = "10"
 PAIR_RATE_WINDOW_S = "300"
+# Welcome audio, played once on the first connection after a (re)pairing.
+# "tts" speaks WELCOME_TEXT (empty = default line for LANGUAGE);
+# "audio" plays the owner's clip uploaded with PUT /v1/admin/welcome-audio
+# (or WELCOME_AUDIO_URL), falling back to the spoken line; "off" disables it.
+WELCOME_MODE = "tts"
+WELCOME_TEXT = ""
+WELCOME_AUDIO_URL = ""
+WELCOME_DELAY_MS = "2000"
 
 [[durable_objects.bindings]]
 name = "DEVICE_HUB"

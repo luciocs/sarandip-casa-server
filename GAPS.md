@@ -40,3 +40,7 @@ Pendente: medição de heap e teste na placa real (sem flash sem o Lucio).
 - [ ] Contacto de segurança definitivo.
 - [ ] A PROPOSTA em `arquitetura-casa` (fora deste pacote) ainda cita Wi-Fi "por Bluetooth ou app" no bloco antigo; a decisão vigente é o portal cativo. Atualizar a PROPOSTA é outro trabalho, e este pacote não edita `/workspace/bt-startup`.
 - [ ] Publicar só com o ok explícito do Lucio. Nada de push, remote ou repo público feito por esta frente.
+
+## Áudio de boas-vindas (21/11/2026)
+
+Pedido do Lucio (21/11 16:28): áudio de boas-vindas na primeira ligação após o pareamento. Implementado só no servidor (sem mudança de firmware): o pareamento arma, o próximo `hello` dispara via alarme do DO, enviado como resposta tardia (`tts_start`/PCM/`tts_end`). Padrão público: TTS "Boas-vindas ao seu novo Sarandip." (`WELCOME_MODE=tts`). Clipes próprios: `WELCOME_MODE=audio` + `PUT /v1/admin/welcome-audio` (armazenado no DO, privado) ou `WELCOME_AUDIO_URL`. Clipes de terceiros/marcas nunca entram no repositório. Nota de teste: no runtime de testes os frames binários chegam como `Blob`; `test/integration.spec.ts` ainda lê `new Uint8Array(blob)` (comprimento 0), então as checagens de bytes ali são fracas; `test/welcome.spec.ts` lê os bytes corretamente.
