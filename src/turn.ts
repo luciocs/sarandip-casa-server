@@ -114,7 +114,6 @@ export async function handleTurn(req: Request, env: Env, ctx: ExecutionContext, 
   }
 
   const turnId = newTurnId();
-  await h.registerTurn(turnId, text);
   const now = new Date();
   const payload = buildRoutinePayload({
     text, turnId, deviceId, pedido: fast.pedido, history,
@@ -123,6 +122,7 @@ export async function handleTurn(req: Request, env: Env, ctx: ExecutionContext, 
     source: deviceKind(env), assistant: assistantName(env), language: env.LANGUAGE,
   });
   const accepted = await triggerRoutine(env, payload);
+  if (accepted) await h.registerTurn(turnId, text);
   if (accepted && isNativeRoutine(env)) {
     ctx.waitUntil((async () => {
       const spoken = await completeNativeRoutine(env, payload);
@@ -131,8 +131,8 @@ export async function handleTurn(req: Request, env: Env, ctx: ExecutionContext, 
   }
   const sayOk = ackText(env);
   const sayFail = failText(env);
-  await h.remember(text, accepted ? sayOk : "").catch(() => undefined);
   const say = accepted ? sayOk : sayFail;
+  await h.remember(text, say).catch(() => undefined);
   console.log("turn reply", "route", accepted ? "routine" : "routine_failed", "reason", fast.kind === "escalate" ? fast.reason : "", say.slice(0, 300));
   const tts = await synthesize(env, say).catch((e) => {
     console.error("turn tts", (e as Error)?.message ?? "error");
@@ -141,7 +141,7 @@ export async function handleTurn(req: Request, env: Env, ctx: ExecutionContext, 
   if (!tts) return err(502, "tts failed");
   return speak(tts, {
     "x-sarandip-route": accepted ? "routine" : "routine_failed",
-    "x-sarandip-turn-id": turnId,
+    ...(accepted ? { "x-sarandip-turn-id": turnId } : {}),
     "x-sarandip-late-reply": accepted ? "1" : "0",
   });
 }

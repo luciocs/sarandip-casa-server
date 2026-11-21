@@ -18,6 +18,22 @@ export interface PromptCtx {
   memory: string; // extracted, capped; "" when off or unavailable
 }
 
+/** Drop empty lines and keep user/assistant alternating so a failed escalate cannot break the next turn. */
+export function historyForLlm(history: Turn[]): Turn[] {
+  const out: Turn[] = [];
+  for (const t of history) {
+    const content = (t.content ?? "").trim();
+    if (!content || (t.role !== "user" && t.role !== "assistant")) continue;
+    if (out.length && out[out.length - 1].role === t.role) {
+      out[out.length - 1] = { role: t.role, content: `${out[out.length - 1].content}\n${content}`.slice(0, 500) };
+    } else {
+      out.push({ role: t.role, content });
+    }
+  }
+  while (out.length && out[0].role !== "user") out.shift();
+  return out.slice(-8);
+}
+
 export function systemPrompt(env: Env, ctx: PromptCtx = { clock: localClock(), memory: "" }): string {
   const name = assistantName(env);
   const mark = env.ESCALATE_MARK || "<<AGENT>>";
@@ -42,7 +58,7 @@ export async function fastAnswer(
   const body = {
     model: env.XAI_MODEL,
     max_tokens: num(env.XAI_MAX_TOKENS, 160),
-    messages: [{ role: "system", content: system }, ...history.slice(-8), { role: "user", content: text }],
+    messages: [{ role: "system", content: system }, ...historyForLlm(history), { role: "user", content: text }],
   };
   let out: string;
   if (env.LLM_PROVIDER === "stub") {

@@ -33,12 +33,21 @@ export function defaultRoutineFail(language: string): string {
     : "I couldn't reach your agent just now.";
 }
 
+function spokenOrDefault(configured: string | undefined, language: string, fallback: (lang: string) => string, englishDefault: string): string {
+  const t = configured?.trim() ?? "";
+  if (!t) return fallback(language);
+  // A Worker copied from wrangler.example.toml keeps the English canned lines even
+  // after LANGUAGE is set to pt-BR. Prefer the language default in that case.
+  if (clockLang(language) === "pt-BR" && t === englishDefault) return fallback(language);
+  return t;
+}
+
 export function ackText(env: Pick<Env, "ACK_TEXT" | "LANGUAGE">): string {
-  return env.ACK_TEXT?.trim() || defaultAck(env.LANGUAGE);
+  return spokenOrDefault(env.ACK_TEXT, env.LANGUAGE, defaultAck, "On it, I'll get back to you.");
 }
 
 export function failText(env: Pick<Env, "ROUTINE_FAIL_TEXT" | "LANGUAGE">): string {
-  return env.ROUTINE_FAIL_TEXT?.trim() || defaultRoutineFail(env.LANGUAGE);
+  return spokenOrDefault(env.ROUTINE_FAIL_TEXT, env.LANGUAGE, defaultRoutineFail, "I couldn't reach your agent just now.");
 }
 
 export function systemRules(name: string, mark: string, kind: string, language: string): string {

@@ -171,7 +171,11 @@ describe("WebSocket + late routine reply", () => {
     const f = await turn("lembra de falha no agente");
     expect(f.headers.get("x-sarandip-route")).toBe("routine_failed");
     expect(f.headers.get("x-sarandip-late-reply")).toBe("0");
+    expect(f.headers.get("x-sarandip-turn-id")).toBeNull();
     await f.arrayBuffer();
+    const failedHist = await hubFor(DEV).history();
+    expect(failedHist.at(-2)).toMatchObject({ role: "user", content: "lembra de falha no agente" });
+    expect(failedHist.at(-1)).toMatchObject({ role: "assistant", content: "Não consegui falar com o agente agora." });
   });
   it("concurrent /bloco/reply calls are serialized: streams never interleave", async () => {
     const { ws, rx } = await openSocket();

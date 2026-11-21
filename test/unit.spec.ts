@@ -3,9 +3,10 @@ import { describe, it, expect } from "vitest";
 import { parseWav, wavHeader, guardPcmFrame, evenFrames, WavError } from "../src/wav";
 import { safeEqual, hexToBytes, authDevice, authReply, sha256, bytesToHex } from "../src/auth";
 import { stubTranscribe, transcribe } from "../src/adapters/stt";
-import { fastAnswer, systemPrompt } from "../src/adapters/llm";
+import { fastAnswer, systemPrompt, historyForLlm } from "../src/adapters/llm";
 import { synthesize } from "../src/adapters/tts";
 import { triggerRoutine, completeNativeRoutine } from "../src/adapters/routine";
+import { failText, ackText } from "../src/i18n";
 import type { Env } from "../src/env";
 import { pcm, wav, TOKEN, DEV } from "./helpers";
 
@@ -121,6 +122,25 @@ describe("adapters (real request shapes, fake network)", () => {
     expect(e).toEqual({ kind: "escalate", pedido: "ver agenda", reason: "mark" });
     const f = await fastAnswer(baseEnv(), "x", [], fakeFetch(() => new Response("no", { status: 500 }), []));
     expect(f.kind).toBe("escalate");
+  });
+  it("failText/ackText use LANGUAGE defaults when wrangler still has the English canned lines", () => {
+    expect(failText({ LANGUAGE: "pt-BR", ROUTINE_FAIL_TEXT: "I couldn't reach your agent just now." })).toBe("Não consegui falar com o agente agora.");
+    expect(ackText({ LANGUAGE: "pt-BR", ACK_TEXT: "On it, I'll get back to you." })).toBe("Deixa comigo, já te respondo.");
+    expect(failText({ LANGUAGE: "pt-BR", ROUTINE_FAIL_TEXT: "  " })).toBe("Não consegui falar com o agente agora.");
+    expect(failText({ LANGUAGE: "pt-BR", ROUTINE_FAIL_TEXT: "Falha no webhook." })).toBe("Falha no webhook.");
+    expect(failText({ LANGUAGE: "en", ROUTINE_FAIL_TEXT: "I couldn't reach your agent just now." })).toBe("I couldn't reach your agent just now.");
+  });
+  it("historyForLlm drops empties, merges consecutive same-role turns, and starts on a user", () => {
+    expect(historyForLlm([
+      { role: "assistant", content: "olá" },
+      { role: "user", content: "agenda?" },
+      { role: "user", content: "que horas são?" },
+      { role: "assistant", content: "  " },
+      { role: "assistant", content: "São 18:00." },
+    ])).toEqual([
+      { role: "user", content: "agenda?\nque horas são?" },
+      { role: "assistant", content: "São 18:00." },
+    ]);
   });
   it("English system prompt when LANGUAGE=en", () => {
     const sys = systemPrompt(baseEnv({ LANGUAGE: "en", ASSISTANT_NAME: "Sarandip" }));
