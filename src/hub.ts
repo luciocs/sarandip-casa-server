@@ -144,6 +144,15 @@ export class DeviceHub extends DurableObject<Env> {
     return { online: !!s, muted: !!s?.a.muted, fw: s?.a.fw ?? "", pending };
   }
 
+  /** Ask an online device to poll GET /bloco/ota. No-op and false if the socket is down. */
+  async notifyOta(payload: { version: string }): Promise<boolean> {
+    const s = this.socket();
+    if (!s) return false;
+    this.send(s.ws, { v: 1, type: "ota_available", version: String(payload.version ?? "").slice(0, 40) });
+    this.send(s.ws, { v: 1, type: "ota" });
+    return true;
+  }
+
   async history(): Promise<Turn[]> {
     const rows = this.sql.exec("SELECT role, content FROM history ORDER BY id DESC LIMIT ?", HISTORY_KEEP).toArray();
     return rows.reverse().map((r) => ({ role: r.role as Turn["role"], content: String(r.content) }));

@@ -11,9 +11,14 @@ import { clampTtl, clientKey } from "./registry";
 import { PROTOCOL, publicBase, wsUrl } from "./config";
 import { resolveTz } from "./clock";
 import { WELCOME_MAX_BYTES, WelcomeError, welcomePcmFrom } from "./welcome";
+import {
+  adminFirmware, adminFirmwareAssign, adminFirmwarePush, adminFirmwareStatus,
+  deviceOta, deviceOtaImage, deviceOtaStatus,
+} from "./firmware";
 
 export { DeviceHub } from "./hub";
 export { DeviceRegistry } from "./registry";
+export { FirmwareStore } from "./firmware";
 
 const MAX_TURN_BYTES = 1_048_576;
 
@@ -47,6 +52,8 @@ export function deviceConfig(env: Env, origin: string) {
     reply_audio: { format: "pcm_s16le", sample_rate: 16000, frame_bytes: 8192 },
     protocol: PROTOCOL,
     tz: resolveTz(env.TZ),
+    ota_auto: "on",
+    ota_url: `${base}/bloco/ota`,
   };
 }
 
@@ -202,6 +209,10 @@ export default {
       if (path === "/v1/admin/welcome-audio") return welcomeAudioAdmin(req, env);
       if (path === "/v1/admin/devices/welcome") return rearmWelcome(req, env);
       if (path === "/v1/admin/devices/activity") return deviceActivity(req, env);
+      if (path === "/v1/admin/firmware") return adminFirmware(req, env);
+      if (path === "/v1/admin/firmware/assign") return adminFirmwareAssign(req, env);
+      if (path === "/v1/admin/firmware/push") return adminFirmwarePush(req, env);
+      if (path === "/v1/admin/firmware/status") return adminFirmwareStatus(req, env);
 
       if (path === "/bloco/reply") {
         if (req.method !== "POST") return json({ error: "method" }, 405);
@@ -230,6 +241,9 @@ export default {
       }
 
       if (path === "/bloco/config" && req.method === "GET") return json(deviceConfig(env, url.origin));
+      if (path === "/bloco/ota" && req.method === "GET") return deviceOta(req, env, deviceId, url.origin);
+      if (path === "/bloco/ota/image" && req.method === "GET") return deviceOtaImage(req, env, deviceId);
+      if (path === "/bloco/ota/status" && req.method === "POST") return deviceOtaStatus(req, env, deviceId);
 
       if (path === "/bloco/wake-log" && req.method === "POST") {
         let b: Record<string, unknown> = {};

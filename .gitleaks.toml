@@ -10,3 +10,7 @@ regexes = ['''7704685303b2132fd42cc33272a38a6dd85174c94fcb99fb36243269a75d0009''
 [[allowlists]]
 description = "Dependencies and local build output (not committed)"
 paths = ['''node_modules''', '''(?:^|/)dist(?:/|$)''', '''\.wrangler''', '''package-lock\.json''']
+
+[[allowlists]]
+description = "Throwaway ECDSA P-256 test key (not the official firmware signing key)"
+paths = ["test/fixtures/firmware-test-p256.*"]

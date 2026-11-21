@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { DeviceHub } from "./hub";
 import type { DeviceRegistry } from "./registry";
+import type { FirmwareStore } from "./firmware";
 
 export interface Env {
   DEVICE_HUB: DurableObjectNamespace<DeviceHub>;
   DEVICE_REGISTRY: DurableObjectNamespace<DeviceRegistry>;
+  FIRMWARE_STORE: DurableObjectNamespace<FirmwareStore>;
   // vars
   ASSISTANT_NAME: string;
   DEVICE_KIND: string;
@@ -62,6 +64,7 @@ export interface Env {
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   WELCOME_AUDIO_TOKEN?: string;
+  FIRMWARE_SIGNING_KEY?: string;
 }
 
 export const num = (v: string | undefined, d: number): number => {

@@ -53,6 +53,9 @@
       },
       "ANTHROPIC_API_KEY": {
         "description": "Optional. Used when ROUTINE_PROVIDER=anthropic."
+      },
+      "FIRMWARE_SIGNING_KEY": {
+        "description": "Optional PKCS#8 PEM of an ECDSA P-256 key used to sign OTA firmware images. Official firmware verifies the matching public key."
       }
     }
   }

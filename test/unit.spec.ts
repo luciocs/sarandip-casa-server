@@ -22,7 +22,7 @@ const baseEnv = (over: Partial<Env> = {}): Env => ({
   OPENAI_BASE_URL: "https://api.openai.com/v1", OPENAI_MODEL: "gpt-4o-mini",
   ANTHROPIC_BASE_URL: "https://api.anthropic.com", ANTHROPIC_MODEL: "claude-sonnet-4-5",
   PAIR_RATE_MAX: "10", PAIR_RATE_WINDOW_S: "300",
-  DEVICE_HUB: undefined as never, DEVICE_REGISTRY: undefined as never,
+  DEVICE_HUB: undefined as never, DEVICE_REGISTRY: undefined as never, FIRMWARE_STORE: undefined as never,
   XAI_API_KEY: "xai-k", ELEVENLABS_API_KEY: "el-k", WEBHOOK_URL: "https://hook.example/run", WEBHOOK_TOKEN: "wh-k",
   ...over,
 });

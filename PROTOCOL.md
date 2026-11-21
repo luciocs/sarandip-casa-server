@@ -148,7 +148,8 @@ To revoke a paired device: `POST /v1/admin/devices/revoke` with `Authorization: 
   "ws_enabled": 1, "ws_mute_events": 1, "ws_wake": 0, "turn_uplink": "http",
   "ambient_listen": "off", "ambient_enabled": 0, "follow_up_enabled": false, "barge_in": "off",
   "late_reply": "ws", "reply_audio": {"format": "pcm_s16le", "sample_rate": 16000, "frame_bytes": 8192},
-  "protocol": "sarandip-ws-1", "tz": "UTC"
+  "protocol": "sarandip-ws-1", "tz": "UTC",
+  "ota_auto": "on", "ota_url": "https://<base>/bloco/ota"
 }
 ```
 
@@ -371,3 +372,24 @@ Already present and still valid:
 - Multipart turn uplink, chunked download and `204`.
 
 Additive, backward-compatible fields: `protocol` and `tz` on config and `hello_ack`. The previous protocol name remains accepted on `hello`.
+
+
+## 14. Firmware OTA
+
+The device pulls an **application** image (the `firmware.bin` that starts at flash offset 0x10000), never a combined factory bundle.
+
+### Admin (Bearer `ADMIN_TOKEN`)
+
+- `PUT /v1/admin/firmware?channel=<id>` with `X-Sarandip-Firmware-Version: <semver>` and the raw app bytes (`100000`–`6 MiB`). Optional `X-Sarandip-Firmware-Sha256`. The Worker stores the image in the `FirmwareStore` Durable Object, computes SHA-256, and signs it with `FIRMWARE_SIGNING_KEY` when that secret is set (ECDSA P-256, SHA-256, raw `r||s` as 128 hex chars). A combined factory image (0xFF padding into the partition table at 0x8000) is rejected. `201` with `{channel, version, sha256, size, signature, uploaded_ms}`.
+- `GET /v1/admin/firmware?channel=<id>` lists images. `GET ...&version=` returns one manifest. `DELETE ...&version=` removes it.
+- `POST /v1/admin/firmware/assign` `{"device_id","channel","version"?}` binds that image to the device.
+- `POST /v1/admin/firmware/push` does the same and, if the device WebSocket is up, sends `ota_available` and `ota`.
+- `GET /v1/admin/firmware/status?device_id=` returns the assignment, last device report, and hub online/fw if known.
+
+### Device (device token)
+
+- `GET /bloco/ota?fw=<running>` — `204` if nothing is assigned or the assigned version is not newer. `200` JSON: `{version, channel, url, sha256, size, signature}`. `url` is a path on the same host (`/bloco/ota/image?...`).
+- `GET /bloco/ota/image?channel=&version=` — the assigned image only, `application/octet-stream`, headers `X-Sarandip-Ota-Sha256` and `X-Sarandip-Ota-Signature`.
+- `POST /bloco/ota/status` `{"event","version"?,"fw"?,"detail"?}` — `204`. Events used by the firmware: `started`, `applied`, `failed`, plus `verified` is reserved.
+
+`GET /bloco/config` includes `ota_auto: "on"` and `ota_url`. Firmware 0.1.2-dev advertises `capabilities.ota_http: true`, polls when idle or muted (or immediately on a WebSocket `ota` / `ota_available`), refuses to start while speaking/listening/thinking, verifies hash and signature, writes the other OTA slot, and marks the new image valid only after a later config fetch or `hello_ack`.

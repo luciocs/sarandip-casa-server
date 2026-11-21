@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { readFileSync } from "node:fs";
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
+
+const TEST_FIRMWARE_SIGNING_KEY = readFileSync(
+  new URL("./test/fixtures/firmware-test-p256.pkcs8.pem", import.meta.url),
+  "utf8",
+);
 
 // Test-only bindings: every external API is a stub, and the device token is a
 // throwaway value whose SHA-256 is below. No real key is used or needed.
@@ -34,6 +40,7 @@ export default defineConfig({
           WELCOME_MODE: "audio",
           WELCOME_DELAY_MS: "300",
           DEVICE_TOKENS: JSON.stringify({ dev_home01: TEST_TOKEN_SHA, dev_other: "0".repeat(64) }),
+          FIRMWARE_SIGNING_KEY: TEST_FIRMWARE_SIGNING_KEY,
         },
       },
     }),

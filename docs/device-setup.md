@@ -48,5 +48,5 @@ keeps only what the server operator (or the owner's agent) needs, and must not c
 5. **Revoke:** `POST /v1/admin/devices/revoke` `{"device_id":"..."}` with the admin token. The device then
    gets `401`, shows one blinking amber LED and retries slowly until the owner reopens setup.
 
-There is no OTA: firmware updates are a USB flash by the owner. The server cannot push firmware or wake
+The first OTA-capable image is a USB flash by the owner (see the firmware README). Later updates are an HTTPS pull from this server (`GET /bloco/ota`) after an admin upload and assign; the server never writes the flash itself and still does not push wake
 models to the device.

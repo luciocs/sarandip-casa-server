@@ -11,3 +11,6 @@ wrangler.toml
 *.key
 .DS_Store
 coverage/
+
+# Throwaway test signing key (see test/fixtures/README.md).
+!test/fixtures/firmware-test-p256*.pem

@@ -78,9 +78,17 @@ class_name = "DeviceHub"
 name = "DEVICE_REGISTRY"
 class_name = "DeviceRegistry"
 
+[[durable_objects.bindings]]
+name = "FIRMWARE_STORE"
+class_name = "FirmwareStore"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["DeviceHub", "DeviceRegistry"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["FirmwareStore"]
 
 [observability]
 enabled = true

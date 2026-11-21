@@ -96,6 +96,7 @@ npx wrangler secret put ADMIN_TOKEN       # long random string; protects pairing
 # npx wrangler secret put DEVICE_TOKENS         # legacy fallback; prefer pairing
 # npx wrangler secret put OPENAI_API_KEY        # ROUTINE_PROVIDER=openai
 # npx wrangler secret put ANTHROPIC_API_KEY     # ROUTINE_PROVIDER=anthropic
+# npx wrangler secret put FIRMWARE_SIGNING_KEY  # PKCS#8 PEM; signs OTA images
 
 curl https://<your-worker>.<your-subdomain>.workers.dev/health
 ```
@@ -112,7 +113,7 @@ Verification against [Cloudflare's Deploy to Cloudflare buttons docs](https://de
 - The button clones the public source repo, provisions supported resources (including **Durable Objects**) from the Wrangler config, and deploys with Workers Builds.
 - **Secrets** are taken from `.dev.vars.example` (dotenv) and shown in the dashboard for the deployer to fill in. Binding descriptions live under `cloudflare.bindings` in `package.json`.
 - The official docs say Cloudflare reads "the Wrangler configuration file" of the source repo (`wrangler.toml` / `wrangler.jsonc`). This project ships `wrangler.example.toml` and gitignores a local `wrangler.toml` (so an `account_id` or a personal URL cannot be committed by mistake). **Before publication**, either commit a copy of the example as `wrangler.toml` (still with no `account_id` and no personal URL) or confirm that the button can be pointed at `wrangler.example.toml`. This is listed as a pending publish step.
-- Durable Object migrations in this package use the legacy `[[migrations]]` array, tag `v1`, `new_sqlite_classes = ["DeviceHub", "DeviceRegistry"]`. As of June 2026 Cloudflare also offers a declarative `exports` map; this package keeps `migrations` so a first-time `wrangler deploy` (and the current test plugin) apply both SQLite classes once. `exports` and `migrations` must not be mixed.
+- Durable Object migrations in this package use the legacy `[[migrations]]` array: tag `v1` (`DeviceHub`, `DeviceRegistry`) and tag `v2` (`FirmwareStore`). As of June 2026 Cloudflare also offers a declarative `exports` map; this package keeps `migrations` so a first-time `wrangler deploy` (and the current test plugin) apply the SQLite classes. `exports` and `migrations` must not be mixed.
 - Private repositories are not supported by the button. The URL above is a clearly marked placeholder until the owner publishes the repo.
 - Limitations: GitHub/GitLab only; Workers only, not Pages; monorepos need each app isolated in a subdirectory.
 

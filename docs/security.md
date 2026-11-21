@@ -28,6 +28,6 @@ Full firmware details: `../sarandip-casa-firmware/docs/security.md`.
 
 ## Other device facts the operator relies on
 
-- No OTA and no remote wake models: the server cannot push code or model bytes to the device.
+- HTTPS OTA: the admin may upload an **app** image (not a factory bundle) and assign it to a device. The device pulls it over HTTPS with its token, checks SHA-256 and an ECDSA P-256 signature, and only then reboots. The server cannot push an image onto the flash; it only offers a manifest and, if the device is online, a WebSocket `ota_available` hint. Wake models are still not downloaded.
 - The device sends its token only over TLS (public CA bundle) to the server it was paired with; a
   `sarandip_base` value in `/bloco/config` cannot redirect it.
