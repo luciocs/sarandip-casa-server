@@ -54,9 +54,9 @@ Every step is **idempotent**: check the current state first, change only what is
 - **`ADMIN_TOKEN`:** the same kind of long random string. Pipe it into `npx wrangler secret put ADMIN_TOKEN`. You will use it to issue pairing codes and to read device status. Do not print it.
 - **Pairing (preferred way to deliver a device token):**
   1. Choose a `device_id` matching `^[A-Za-z0-9_-]{1,64}$`, for example `dev_home01`, or let the device use the id it already has (chip-derived).
-  2. `POST /v1/admin/pairing-codes` with `Authorization: Bearer <ADMIN_TOKEN>` and an optional `{"ttl_s":600}`.
-  3. Show the owner **only the pairing code** (and when it expires). Never the device token.
-  4. The device calls `POST /v1/devices/pair` with `{pairing_code, device_id, fw_version}` and receives its token **once**. The server stores only the hash. See `PROTOCOL.md` §2 (frozen contract) and `docs/device-setup.md`.
+  2. `POST /v1/admin/pairing-codes` with `Authorization: Bearer <ADMIN_TOKEN>` and an optional `{"ttl_s":600}` for a short-lived code, or `{"device_id":"sc-…","permanent":true}` for a claim code that ships with the device (no expiry, bound to that device, reusable; re-POST rotates, `DELETE` revokes).
+  3. Show the owner **only the pairing code** (and when it expires, if it does). Never the device token.
+  4. The device calls `POST /v1/devices/pair` with `{pairing_code, device_id, fw_version}` and receives its token **once** per pair. The server stores only the hash. See `PROTOCOL.md` §2 (`/v1/devices/pair` is frozen; claim codes are an additive admin option) and `docs/device-setup.md`.
 - **Legacy `DEVICE_TOKENS`:** only if pairing cannot be used. Hash a token with `node tools/token.mjs --hash-stdin <device_id>` (token on stdin, **hash only** on stdout) and store the JSON map with `npx wrangler secret put DEVICE_TOKENS`. Do not print the token. `DEVICE_TOKENS` is a fallback; the registry is the source of truth for paired devices.
 - **Verify:** `npx wrangler secret list` shows the names `REPLY_SECRET` and `ADMIN_TOKEN`. It shows names only, never values.
 
@@ -153,7 +153,7 @@ The agent answers later with `POST <PUBLIC_BASE_URL or origin>/bloco/reply`.
 ## 9. Pair the device
 
 The owner-facing steps live in the firmware package: `../sarandip-casa-firmware/docs/device-setup.md` (source of truth; `docs/device-setup.md` here keeps only the server side). With the owner:
-1. Create a pairing code (`POST /v1/admin/pairing-codes`, default 10 minutes) and give the owner **only the code** and the server URL (`https://...`). Never the token.
+1. Create a pairing code (`POST /v1/admin/pairing-codes`, default 10 minutes, or `{"device_id","permanent":true}` for a printed claim code) and give the owner **only the code** and the server URL (`https://...`). Never the token.
 2. The owner powers the device. On first boot the ring breathes blue and the device opens the **open** Wi-Fi network `Sarandip-Setup` (no password, by design). The owner joins it; the setup page opens by itself (or `http://192.168.4.1`).
 3. The owner picks the home Wi-Fi (2.4 GHz), types its password, the pairing code and, under "Advanced", the server URL unless the firmware build prefilled it.
 4. The page shows "Saved" (green ring, the device restarts) or a clear error: wrong Wi-Fi password, network not found, no internet time, code not found (`404`), code expired or used (`410`), too many attempts (`429`), server unreachable.
@@ -178,7 +178,7 @@ The welcome plays once on the first connection after pairing. Default: `WELCOME_
   2. Generate the new value and update the agent's copy first.
   3. Put the new value in `REPLY_SECRET` and the previous value in `REPLY_SECRET_PREVIOUS`.
   4. After late answers that still use the old value have finished (up to `REPLY_TTL_S`), delete `REPLY_SECRET_PREVIOUS`.
-- **Revoke a device:** `POST /v1/admin/devices/revoke` with `ADMIN_TOKEN` and `{"device_id":"…"}` (confirm first). If a legacy `DEVICE_TOKENS` entry exists, remove it from that secret too. The next request gets `401`. Device NVS is not encrypted (decided), so revocation is the mitigation for a lost or stolen device. To re-pair, the owner reopens the setup portal: flip the case mute switch 5 times within about 5 seconds and leave it for 3 seconds (ring blinks blue), or hold BOOT (inside the case) for about 10 seconds and release; and you issue a new pairing code; re-pairing the same `device_id` invalidates the previous token.
+- **Revoke a device:** `POST /v1/admin/devices/revoke` with `ADMIN_TOKEN` and `{"device_id":"…"}` (confirm first). If a legacy `DEVICE_TOKENS` entry exists, remove it from that secret too. The next request gets `401`. Device NVS is not encrypted (decided), so revocation is the mitigation for a lost or stolen device. To re-pair, the owner reopens the setup portal: flip the case mute switch 5 times within about 5 seconds and leave it for 3 seconds (ring blinks blue), or hold BOOT (inside the case) for about 10 seconds and release; and the owner types a new short-lived code or the printed claim code; re-pairing the same `device_id` invalidates the previous token. Revoke or rotate a claim code with `DELETE` / re-issue on `/v1/admin/pairing-codes`.
 - **Factory reset (device):** flip the mute switch 10 times within about 10 seconds and leave it for 3 seconds (ring turns red), or hold BOOT for about 25 seconds (ring blinks red) and release. It erases Wi-Fi, server URL and token on the device. Revoke the device on the server too before it changes hands.
 - **Firmware updates:** there is no OTA. Updates are a USB flash by the owner; never flash on the owner's behalf.
 - **Turn memory or the agent off:** see steps 6 and 7. `ROUTINE_PROVIDER="off"` disables hand-off. `MEMORY_ENABLED=false` disables memory.

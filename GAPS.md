@@ -4,7 +4,7 @@ Internal notes for this package. Not required in a public README. Status after t
 
 ## Servidor (Worker) — implementado neste pacote
 
-1. **Pareamento.** Implementado. DO `DeviceRegistry` (SQLite): códigos de uso único e hashes de token. `DEVICE_TOKENS` permanece como fallback legado. Contrato congelado em `PROTOCOL.md` §2: `POST /v1/admin/pairing-codes` (Bearer `ADMIN_TOKEN`) e `POST /v1/devices/pair` → `{device_id, token, base_url, ws_url, tz}`. Também há `POST /v1/admin/devices/revoke`.
+1. **Pareamento.** Implementado. DO `DeviceRegistry` (SQLite): códigos de uso único (TTL) e *claim codes* permanentes presos a um `device_id` (reutilizáveis, rotacionáveis/revogáveis no admin), mais hashes de token. `DEVICE_TOKENS` permanece como fallback legado. Contrato de `POST /v1/devices/pair` congelado em `PROTOCOL.md` §2; claim codes são opção admin aditiva. Também há `POST /v1/admin/devices/revoke`.
 2. **`tools/token.mjs`.** Não imprime o token. Só `--hash-stdin` (hash no stdout). Entrega do token: pareamento.
 3. **Fuso configurável.** Var `TZ` (padrão `UTC`). Textos de relógio em `en` e `pt-BR`. Testes com `America/Sao_Paulo`, `UTC` e `America/New_York`.
 4. **Memória.** `MEMORY_ENABLED` (padrão `true`), `MEMORY_REPO` padrão `luciocs/jarvis-memory-demo`, `MEMORY_SECTIONS` configurável. Sem `GITHUB_TOKEN`, leitura por `raw.githubusercontent.com` (ETag, mesmo cache/TTL/filtro/teto). Com token, contents API (repos privados). **O repo de exemplo está público (confirmado 20/11/2026):** leitura sem token via raw.githubusercontent e Contents API retorna HTTP 200. Há teste real (`test/memory-live.ts`) além dos mocks. No `AGENT.md` a memória é um passo normal que o dono pode pular.

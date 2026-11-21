@@ -69,7 +69,7 @@ The agent follows [`AGENT.md`](AGENT.md). The steps are:
 4. It asks you for **only** your API keys, through a protected field and never in chat.
 5. It walks you through memory (connected by default; you may skip it) and, if you want, your agent.
 6. It runs the tests.
-7. It gives you a **pairing code** to type on the device's setup page.
+7. It gives you a **pairing code** to type on the device's setup page (short-lived, or a printed claim code bound to that device).
 
 ## Manual setup
 
@@ -100,7 +100,7 @@ npx wrangler secret put ADMIN_TOKEN       # long random string; protects pairing
 curl https://<your-worker>.<your-subdomain>.workers.dev/health
 ```
 
-Then pair the device. See `docs/device-setup.md` and `PROTOCOL.md` §2.
+Then pair the device. See `docs/device-setup.md` and `PROTOCOL.md` §2. Short-lived codes (`POST /v1/admin/pairing-codes`, optional `ttl_s`) expire in 10 minutes by default. For a code that ships in the box, issue a claim code with `{"device_id":"sc-…","permanent":true}`: it never expires, works only for that device, and can be reused after a factory reset; `DELETE` or a re-issue rotates it.
 
 ### Deploy to Cloudflare button
 

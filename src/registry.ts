@@ -79,6 +79,7 @@ export class DeviceRegistry extends DurableObject<Env> {
     // Owner's welcome clip (PCM16 mono 16 kHz, no header). Private: never served back.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS welcome_clip(
       id INTEGER PRIMARY KEY CHECK (id = 1), pcm BLOB NOT NULL, bytes INTEGER NOT NULL, updated_ms INTEGER NOT NULL)`);
+    this.migrate();
   }
 
   async welcomeClipPut(pcm: Uint8Array): Promise<{ bytes: number }> {
@@ -103,20 +104,71 @@ export class DeviceRegistry extends DurableObject<Env> {
     return ((this.sql.exec("SELECT changes() AS n").toArray()[0]?.n as number) ?? 0) > 0;
   }
 
-  async issueCode(ttlS: number): Promise<{ pairing_code: string; expires_in: number; expires_at: string }> {
-    const ttl = clampTtl(ttlS);
-    const now = Date.now();
-    this.sql.exec("DELETE FROM pairing_codes WHERE (consumed_ms IS NOT NULL OR expires_ms < ?) AND created_ms < ?", now, now - 24 * 3600 * 1000);
-    let code = "";
+  private migrate(): void {
+    const cols = this.sql.exec("PRAGMA table_info(pairing_codes)").toArray();
+    if (!cols.some((c) => String(c.name) === "permanent")) {
+      this.sql.exec("ALTER TABLE pairing_codes ADD COLUMN permanent INTEGER NOT NULL DEFAULT 0");
+    }
+  }
+
+  /** Drop expired or consumed short-lived codes older than 24 h. Claim codes are never swept. */
+  async sweepExpired(now = Date.now()): Promise<void> {
+    this.sql.exec(
+      "DELETE FROM pairing_codes WHERE COALESCE(permanent, 0) = 0 AND (consumed_ms IS NOT NULL OR expires_ms < ?) AND created_ms < ?",
+      now,
+      now - 24 * 3600 * 1000,
+    );
+  }
+
+  private freshCode(): string {
     for (let i = 0; i < 8; i++) {
       const c = randomCode();
       const exists = this.sql.exec("SELECT 1 AS n FROM pairing_codes WHERE code = ?", c).toArray()[0];
-      if (!exists) { code = c; break; }
+      if (!exists) return c;
     }
-    if (!code) throw new Error("code_collision");
+    throw new Error("code_collision");
+  }
+
+  async issueCode(ttlS: number): Promise<{ pairing_code: string; expires_in: number; expires_at: string }> {
+    const ttl = clampTtl(ttlS);
+    const now = Date.now();
+    await this.sweepExpired(now);
+    const code = this.freshCode();
     const expires = now + ttl * 1000;
-    this.sql.exec("INSERT INTO pairing_codes(code, created_ms, expires_ms) VALUES (?, ?, ?)", code, now, expires);
+    this.sql.exec("INSERT INTO pairing_codes(code, created_ms, expires_ms, permanent) VALUES (?, ?, ?, 0)", code, now, expires);
     return { pairing_code: formatPairingCode(code), expires_in: ttl, expires_at: new Date(expires).toISOString() };
+  }
+
+  /** Permanent, device-bound claim code. Re-issuing for the same device replaces the previous code. */
+  async issueClaimCode(deviceId: string): Promise<{ pairing_code: string; device_id: string; permanent: true; rotated: boolean }> {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) throw new Error("bad_request");
+    const now = Date.now();
+    await this.sweepExpired(now);
+    this.sql.exec("DELETE FROM pairing_codes WHERE device_id = ? AND COALESCE(permanent, 0) = 1", deviceId);
+    const rotated = ((this.sql.exec("SELECT changes() AS n").toArray()[0]?.n as number) ?? 0) > 0;
+    const code = this.freshCode();
+    // expires_ms = 0 is a placeholder; pair() ignores expiry when permanent = 1, and sweepExpired skips these rows.
+    this.sql.exec(
+      "INSERT INTO pairing_codes(code, created_ms, expires_ms, consumed_ms, device_id, permanent) VALUES (?, ?, 0, NULL, ?, 1)",
+      code, now, deviceId,
+    );
+    return { pairing_code: formatPairingCode(code), device_id: deviceId, permanent: true, rotated };
+  }
+
+  /** Revoke a claim code by device_id or by the printed code. Does not revoke the current device token. */
+  async revokeClaimCode(opts: { deviceId?: string; code?: string }): Promise<{ revoked: boolean; device_id: string | null }> {
+    if (opts.deviceId) {
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(opts.deviceId)) return { revoked: false, device_id: null };
+      this.sql.exec("DELETE FROM pairing_codes WHERE device_id = ? AND COALESCE(permanent, 0) = 1", opts.deviceId);
+      const n = (this.sql.exec("SELECT changes() AS n").toArray()[0]?.n as number) ?? 0;
+      return { revoked: n > 0, device_id: n > 0 ? opts.deviceId : null };
+    }
+    const code = opts.code ? normalizePairingCode(opts.code) : null;
+    if (!code) return { revoked: false, device_id: null };
+    const row = this.sql.exec("SELECT device_id FROM pairing_codes WHERE code = ? AND COALESCE(permanent, 0) = 1", code).toArray()[0];
+    if (!row) return { revoked: false, device_id: null };
+    this.sql.exec("DELETE FROM pairing_codes WHERE code = ? AND COALESCE(permanent, 0) = 1", code);
+    return { revoked: true, device_id: String(row.device_id) };
   }
 
   async pair(rawCode: string, deviceId: string, fwVersion: string, rateKey: string): Promise<PairOk | PairFail> {
@@ -126,19 +178,27 @@ export class DeviceRegistry extends DurableObject<Env> {
     const code = normalizePairingCode(rawCode);
     if (!code) return { ok: false, error: "bad_request" };
     const now = Date.now();
-    const row = this.sql.exec("SELECT expires_ms, consumed_ms FROM pairing_codes WHERE code = ?", code).toArray()[0];
+    const row = this.sql.exec("SELECT expires_ms, consumed_ms, device_id, permanent FROM pairing_codes WHERE code = ?", code).toArray()[0];
     if (!row) return { ok: false, error: "unknown_code" };
-    if (row.consumed_ms != null) return { ok: false, error: "used" };
-    if (now > (row.expires_ms as number)) return { ok: false, error: "expired" };
+    const permanent = Number(row.permanent) === 1;
+    if (permanent) {
+      // Bound to one device_id. A mismatch looks like an unknown code so the binding is not leaked.
+      if (String(row.device_id) !== deviceId) return { ok: false, error: "unknown_code" };
+    } else {
+      if (row.consumed_ms != null) return { ok: false, error: "used" };
+      if (now > (row.expires_ms as number)) return { ok: false, error: "expired" };
+    }
     const token = randomToken();
     const hash = bytesToHex(await sha256(token));
-    this.sql.exec("UPDATE pairing_codes SET consumed_ms = ?, device_id = ? WHERE code = ? AND consumed_ms IS NULL AND expires_ms >= ?", now, deviceId, code, now);
-    const took = this.sql.exec("SELECT changes() AS n").toArray()[0]?.n as number;
-    if (!took) {
-      const again = this.sql.exec("SELECT consumed_ms, expires_ms FROM pairing_codes WHERE code = ?", code).toArray()[0];
-      if (!again) return { ok: false, error: "unknown_code" };
-      if (again.consumed_ms != null) return { ok: false, error: "used" };
-      return { ok: false, error: "expired" };
+    if (!permanent) {
+      this.sql.exec("UPDATE pairing_codes SET consumed_ms = ?, device_id = ? WHERE code = ? AND consumed_ms IS NULL AND expires_ms >= ?", now, deviceId, code, now);
+      const took = this.sql.exec("SELECT changes() AS n").toArray()[0]?.n as number;
+      if (!took) {
+        const again = this.sql.exec("SELECT consumed_ms, expires_ms FROM pairing_codes WHERE code = ?", code).toArray()[0];
+        if (!again) return { ok: false, error: "unknown_code" };
+        if (again.consumed_ms != null) return { ok: false, error: "used" };
+        return { ok: false, error: "expired" };
+      }
     }
     this.sql.exec(
       "INSERT INTO devices(device_id, token_hash, fw_version, paired_ms) VALUES (?, ?, ?, ?) ON CONFLICT(device_id) DO UPDATE SET token_hash = excluded.token_hash, fw_version = excluded.fw_version, paired_ms = excluded.paired_ms",

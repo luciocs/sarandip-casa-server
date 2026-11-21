@@ -56,6 +56,27 @@ Optional JSON body:
 - Single use. Stored until it expires or is consumed.
 - Other statuses: `401`, `400` (`bad_json`), `405`.
 
+Device claim codes are an additive admin option. They do not change the `/v1/devices/pair` request or response (that contract stays frozen). Body:
+
+```json
+{ "device_id": "sc-0123456789ab", "permanent": true }
+```
+
+- `permanent: true` requires a valid `device_id` (`^[A-Za-z0-9_-]{1,64}$`). `ttl_s` is ignored.
+- The code has no expiry and is bound to that `device_id`. Another device redeeming it gets `404 unknown_code`.
+- The same device may redeem it again (factory reset, new owner, or a new pair after a Wi-Fi change). Each successful pair issues a fresh token, invalidates the previous one, and re-arms the welcome, same as a short-lived re-pair.
+- Re-issuing for the same `device_id` replaces the previous claim code.
+
+`200` response:
+
+```json
+{ "pairing_code": "AB3D-EF7H", "device_id": "sc-0123456789ab", "permanent": true, "rotated": false }
+```
+
+`rotated` is `true` when a previous claim code for that device was replaced. There is no `expires_in` / `expires_at`.
+
+`DELETE /v1/admin/pairing-codes` with the same admin auth and `{"device_id":"…"}` or `{"pairing_code":"XXXX-XXXX"}` revokes that claim code (`200 {revoked:true, device_id}` or `404`). It does not revoke the current device token; use `POST /v1/admin/devices/revoke` for that. Short-lived expired or consumed codes are still swept after 24 hours; claim codes are never swept. Pairing rate limits on `/v1/devices/pair` still apply.
+
 ### 2.2 `POST /v1/devices/pair`
 
 No device token. Rate limited (default 10 attempts per client IP per 300 seconds; `PAIR_RATE_MAX` / `PAIR_RATE_WINDOW_S`).

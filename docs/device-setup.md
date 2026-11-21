@@ -29,6 +29,11 @@ keeps only what the server operator (or the owner's agent) needs, and must not c
    `POST /v1/admin/pairing-codes` with `Authorization: Bearer <ADMIN_TOKEN>`, optional `{"ttl_s":600}`.
    The response `pairing_code` (`XXXX-XXXX`, single use, default 10 minutes) is the only thing the owner
    sees. Never show or send the device token.
+   For a code that ships with the device (printed in the box), issue a **claim code** instead:
+   `{"device_id":"sc-…","permanent":true}`. It does not expire and can only be redeemed by that
+   `device_id`. The same code can be reused after a factory reset or by a new owner; each pair
+   issues a new token and invalidates the previous one. Re-POST replaces the code; `DELETE` with
+   `{"device_id"}` or `{"pairing_code"}` revokes it.
 2. **The device pairs** with `POST /v1/devices/pair` `{pairing_code, device_id, fw_version}` and receives
    `{device_id, token, base_url, ws_url, tz}` once (`PROTOCOL.md` §2). Device ids are `sc-` + the Wi-Fi MAC
    in hex. Errors the device shows to the owner: `404` code not found, `410` expired or used, `429` too many
@@ -37,7 +42,8 @@ keeps only what the server operator (or the owner's agent) needs, and must not c
    device opened the WebSocket and sent `hello` (`protocol: "sarandip-ws-1"`).
 4. **Re-pair** (new owner, new server, or a lost token): the owner reopens setup (mute switch 5 flips, or BOOT
    about 10 seconds) and
-   types a new code. Re-pairing the same `device_id` invalidates the previous token. Changing only the Wi-Fi
+   types a new short-lived code, or the printed claim code that shipped with the device. Re-pairing the same
+   `device_id` invalidates the previous token. Changing only the Wi-Fi
    needs no code: the device checks its saved token with `GET /bloco/config` before saving.
 5. **Revoke:** `POST /v1/admin/devices/revoke` `{"device_id":"..."}` with the admin token. The device then
    gets `401`, shows one blinking amber LED and retries slowly until the owner reopens setup.

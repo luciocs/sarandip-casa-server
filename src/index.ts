@@ -51,18 +51,37 @@ export function deviceConfig(env: Env, origin: string) {
 }
 
 async function issuePairingCode(req: Request, env: Env): Promise<Response> {
-  if (req.method !== "POST") return json({ error: "method" }, 405);
+  if (req.method !== "POST" && req.method !== "DELETE") return json({ error: "method" }, 405);
   if (!(await authAdmin(req, env))) return json({ error: "unauthorized" }, 401);
+
+  if (req.method === "DELETE") {
+    let b: { device_id?: unknown; pairing_code?: unknown };
+    try { b = await req.json(); } catch { return json({ error: "bad_json" }, 400); }
+    const deviceId = typeof b.device_id === "string" ? b.device_id : undefined;
+    const code = typeof b.pairing_code === "string" ? b.pairing_code : undefined;
+    if (!deviceId && !code) return json({ error: "bad_request" }, 400);
+    const r = await registry(env).revokeClaimCode({ deviceId, code });
+    return json({ revoked: r.revoked, device_id: r.device_id }, r.revoked ? 200 : 404);
+  }
+
   let ttl: unknown = undefined;
+  let permanent = false;
+  let deviceId: string | undefined;
   const ctype = req.headers.get("content-type") ?? "";
   if (req.headers.get("content-length") && !ctype) return json({ error: "bad_json" }, 400);
   if (ctype.includes("application/json")) {
     try {
-      const b = (await req.json()) as { ttl_s?: unknown };
+      const b = (await req.json()) as { ttl_s?: unknown; permanent?: unknown; device_id?: unknown };
       ttl = b.ttl_s;
+      permanent = b.permanent === true;
+      if (typeof b.device_id === "string") deviceId = b.device_id;
     } catch {
       return json({ error: "bad_json" }, 400);
     }
+  }
+  if (permanent) {
+    if (!deviceId || !/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) return json({ error: "bad_request" }, 400);
+    return json(await registry(env).issueClaimCode(deviceId));
   }
   const issued = await registry(env).issueCode(clampTtl(ttl));
   return json(issued);

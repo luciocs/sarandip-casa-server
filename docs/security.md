@@ -10,6 +10,10 @@ Full firmware details: `../sarandip-casa-firmware/docs/security.md`.
    open (first boot, factory reset, or the owner's gesture: 5 quick mute-switch flips or BOOT held 10 s; never automatically on a Wi-Fi outage),
    accepts at most 2 clients, and the microphone is off meanwhile. Accepted risk: someone nearby, at that
    moment, could see the Wi-Fi password and the single-use, short-lived pairing code.
+   A **device claim code** (printed in the box, no expiry, bound to one `device_id`) is a different
+   trade-off: anyone with that printed code and the physical device can re-pair. Mitigations: the
+   code works only for that device, `/v1/devices/pair` is rate-limited, and an admin can revoke or
+   rotate the claim code (`DELETE` / re-issue). Revoke the current device token separately if needed.
 2. **Public default wake word is `hey_jarvis` ("Hey Jarvis")** (decided 22:32, replacing `okay_nabu`).
    `WAKE_WORD` / `WAKE_DISPLAY` default to `hey_jarvis` / `Hey Jarvis`; `okay_nabu` and `hey_mycroft` are the
    other firmware builds. A "Hey Sarandip" model is future work.

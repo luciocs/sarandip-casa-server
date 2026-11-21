@@ -4,6 +4,7 @@ import type { Env } from "../src/env";
 import { describe, it, expect } from "vitest";
 import { sha256, bytesToHex } from "../src/auth";
 import { normalizePairingCode, formatPairingCode } from "../src/registry";
+import { registry } from "../src/registryref";
 import { devHeaders, waitFor, DEV, REPLY, REPLY_PREV, ADMIN, BASE, TOKEN } from "./helpers";
 
 const exports = rawExports as unknown as { default: { fetch(r: Request): Promise<Response> } };
@@ -107,6 +108,101 @@ describe("pairing codes", () => {
     expect(limited.status).toBe(429);
     expect(limited.headers.get("retry-after")).toBeTruthy();
     expect(((await limited.json()) as { error: string }).error).toBe("rate_limited");
+  });
+});
+
+describe("device claim codes", () => {
+  const pair = (code: string, deviceId: string, ip = "198.51.100.80") =>
+    call("/v1/devices/pair", {
+      method: "POST",
+      headers: { "content-type": "application/json", "cf-connecting-ip": ip },
+      body: JSON.stringify({ pairing_code: code, device_id: deviceId, fw_version: "0.7.7-test" }),
+    });
+
+  it("issues a permanent code bound to one device_id", async () => {
+    expect((await call("/v1/admin/pairing-codes", {
+      method: "POST", headers: adminH, body: JSON.stringify({ permanent: true }),
+    })).status).toBe(400);
+    expect((await call("/v1/admin/pairing-codes", {
+      method: "POST", headers: adminH, body: JSON.stringify({ permanent: true, device_id: "bad id" }),
+    })).status).toBe(400);
+    const r = await call("/v1/admin/pairing-codes", {
+      method: "POST", headers: adminH, body: JSON.stringify({ permanent: true, device_id: "sc-claim000001" }),
+    });
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { pairing_code: string; device_id: string; permanent: boolean; rotated: boolean; expires_in?: number };
+    expect(j.pairing_code).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/);
+    expect(j.device_id).toBe("sc-claim000001");
+    expect(j.permanent).toBe(true);
+    expect(j.rotated).toBe(false);
+    expect(j.expires_in).toBeUndefined();
+  });
+
+  it("is reusable only by the bound device and rotates the token", async () => {
+    const issued = await (await call("/v1/admin/pairing-codes", {
+      method: "POST", headers: adminH, body: JSON.stringify({ permanent: true, device_id: "sc-claim000002" }),
+    })).json() as { pairing_code: string };
+    const other = await pair(issued.pairing_code, "sc-claim999999", "198.51.100.81");
+    expect(other.status).toBe(404);
+    expect(((await other.json()) as { error: string }).error).toBe("unknown_code");
+
+    const first = await pair(issued.pairing_code, "sc-claim000002", "198.51.100.82");
+    expect(first.status).toBe(200);
+    const t1 = ((await first.json()) as { token: string }).token;
+    expect((await call("/bloco/config", { headers: { "x-device-token": t1, "x-device-id": "sc-claim000002" } })).status).toBe(200);
+
+    const second = await pair(issued.pairing_code, "sc-claim000002", "198.51.100.83");
+    expect(second.status).toBe(200);
+    const t2 = ((await second.json()) as { token: string }).token;
+    expect(t2).not.toBe(t1);
+    expect((await call("/bloco/config", { headers: { "x-device-token": t1, "x-device-id": "sc-claim000002" } })).status).toBe(401);
+    expect((await call("/bloco/config", { headers: { "x-device-token": t2, "x-device-id": "sc-claim000002" } })).status).toBe(200);
+  });
+
+  it("reissue replaces the previous claim code; DELETE revokes it", async () => {
+    const a = await (await call("/v1/admin/pairing-codes", {
+      method: "POST", headers: adminH, body: JSON.stringify({ permanent: true, device_id: "sc-claim000003" }),
+    })).json() as { pairing_code: string; rotated: boolean };
+    expect(a.rotated).toBe(false);
+    const b = await (await call("/v1/admin/pairing-codes", {
+      method: "POST", headers: adminH, body: JSON.stringify({ permanent: true, device_id: "sc-claim000003" }),
+    })).json() as { pairing_code: string; rotated: boolean };
+    expect(b.rotated).toBe(true);
+    expect(b.pairing_code).not.toBe(a.pairing_code);
+    expect((await pair(a.pairing_code, "sc-claim000003", "198.51.100.84")).status).toBe(404);
+    expect((await pair(b.pairing_code, "sc-claim000003", "198.51.100.85")).status).toBe(200);
+
+    const del = await call("/v1/admin/pairing-codes", {
+      method: "DELETE", headers: adminH, body: JSON.stringify({ device_id: "sc-claim000003" }),
+    });
+    expect(del.status).toBe(200);
+    expect(await del.json()).toMatchObject({ revoked: true, device_id: "sc-claim000003" });
+    expect((await pair(b.pairing_code, "sc-claim000003", "198.51.100.86")).status).toBe(404);
+    expect((await call("/v1/admin/pairing-codes", {
+      method: "DELETE", headers: adminH, body: JSON.stringify({ device_id: "sc-claim000003" }),
+    })).status).toBe(404);
+  });
+
+  it("DELETE by pairing_code revokes only that claim code", async () => {
+    const issued = await (await call("/v1/admin/pairing-codes", {
+      method: "POST", headers: adminH, body: JSON.stringify({ permanent: true, device_id: "sc-claim000004" }),
+    })).json() as { pairing_code: string };
+    expect((await call("/v1/admin/pairing-codes", { method: "DELETE", headers: { authorization: `Bearer ${ADMIN}` } })).status).toBe(400);
+    const del = await call("/v1/admin/pairing-codes", {
+      method: "DELETE", headers: adminH, body: JSON.stringify({ pairing_code: issued.pairing_code }),
+    });
+    expect(del.status).toBe(200);
+    expect(await del.json()).toMatchObject({ revoked: true, device_id: "sc-claim000004" });
+    expect((await pair(issued.pairing_code, "sc-claim000004", "198.51.100.87")).status).toBe(404);
+  });
+
+  it("is not removed by the 24h short-lived cleanup", async () => {
+    const issued = await (await call("/v1/admin/pairing-codes", {
+      method: "POST", headers: adminH, body: JSON.stringify({ permanent: true, device_id: "sc-claim000005" }),
+    })).json() as { pairing_code: string };
+    await registry(env).sweepExpired(Date.now() + 48 * 3600 * 1000);
+    const r = await pair(issued.pairing_code, "sc-claim000005", "198.51.100.88");
+    expect(r.status).toBe(200);
   });
 });
 
