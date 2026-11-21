@@ -9,7 +9,7 @@ All external contributions require signing the project's **Contributor License A
 - You keep the copyright to your contribution.
 - You grant the project maintainers a license to use and relicense it. This includes offering the code under commercial terms in addition to the open-source licenses.
 
-Until the public repository exists, there is no CLA bot. After publication, a CLA bot (or an equivalent signed-off process) should be wired to pull requests. A legal review of the CLA text is optional and can happen before the first public release.
+A CLA bot (or an equivalent signed-off process) is not wired yet and should be added for pull requests. A legal review of the CLA text is optional and can happen before the first public release.
 
 ## Licenses
 
@@ -34,4 +34,4 @@ By contributing, you agree your contribution is licensed under the license of th
 
 ## Reporting security issues
 
-Do not open a public issue. Until a dedicated security contact is published, use GitHub's private vulnerability reporting on the public repository (once it exists), or contact the maintainers privately.
+Do not open a public issue. Until a dedicated security contact is published, use GitHub's private vulnerability reporting on this repository, or contact the maintainers privately.

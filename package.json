@@ -12,7 +12,11 @@
     "token": "node tools/token.mjs",
     "check": "wrangler deploy --dry-run --outdir dist -c wrangler.example.toml"
   },
-  "keywords": ["cloudflare-worker", "voice", "durable-objects"],
+  "keywords": [
+    "cloudflare-worker",
+    "voice",
+    "durable-objects"
+  ],
   "author": "",
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.9.0",
@@ -58,5 +62,13 @@
         "description": "Optional PKCS#8 PEM of an ECDSA P-256 key used to sign OTA firmware images. Official firmware verifies the matching public key."
       }
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luciocs/sarandip-casa-server.git"
+  },
+  "homepage": "https://github.com/luciocs/sarandip-casa-server#readme",
+  "bugs": {
+    "url": "https://github.com/luciocs/sarandip-casa-server/issues"
   }
 }

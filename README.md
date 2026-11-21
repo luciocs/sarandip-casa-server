@@ -74,7 +74,7 @@ The agent follows [`AGENT.md`](AGENT.md). The steps are:
 ## Manual setup
 
 ```bash
-git clone <this-repo> && cd sarandip-casa-server
+git clone https://github.com/luciocs/sarandip-casa-server.git && cd sarandip-casa-server
 npm install
 npm test                 # unit + integration tests with stubs, no network
 npm run typecheck
@@ -105,16 +105,15 @@ Then pair the device. See `docs/device-setup.md` and `PROTOCOL.md` §2. Short-li
 
 ### Deploy to Cloudflare button
 
-<!-- PLACEHOLDER: this repository is not public yet. Replace OWNER/REPO after the owner approves publication. The button only works with a public GitHub or GitLab repository. -->
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/OWNER/REPO)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/luciocs/sarandip-casa-server)
 
 Verification against [Cloudflare's Deploy to Cloudflare buttons docs](https://developers.cloudflare.com/workers/platform/deploy-buttons/) (fetched 20 November 2026):
 
 - The button clones the public source repo, provisions supported resources (including **Durable Objects**) from the Wrangler config, and deploys with Workers Builds.
 - **Secrets** are taken from `.dev.vars.example` (dotenv) and shown in the dashboard for the deployer to fill in. Binding descriptions live under `cloudflare.bindings` in `package.json`.
-- The official docs say Cloudflare reads "the Wrangler configuration file" of the source repo (`wrangler.toml` / `wrangler.jsonc`). This project ships `wrangler.example.toml` and gitignores a local `wrangler.toml` (so an `account_id` or a personal URL cannot be committed by mistake). **Before publication**, either commit a copy of the example as `wrangler.toml` (still with no `account_id` and no personal URL) or confirm that the button can be pointed at `wrangler.example.toml`. This is listed as a pending publish step.
+- The official docs say Cloudflare reads "the Wrangler configuration file" of the source repo (`wrangler.toml` / `wrangler.jsonc`). This project ships `wrangler.example.toml` and gitignores a local `wrangler.toml`, so an `account_id` or a personal URL cannot be committed by mistake. A committed, account-free `wrangler.toml` is intentionally not included. The Deploy button may therefore not read the example file automatically; use the manual setup (`cp wrangler.example.toml wrangler.toml`) or point your agent at this repository.
 - Durable Object migrations in this package use the legacy `[[migrations]]` array: tag `v1` (`DeviceHub`, `DeviceRegistry`) and tag `v2` (`FirmwareStore`). As of June 2026 Cloudflare also offers a declarative `exports` map; this package keeps `migrations` so a first-time `wrangler deploy` (and the current test plugin) apply the SQLite classes. `exports` and `migrations` must not be mixed.
-- Private repositories are not supported by the button. The URL above is a clearly marked placeholder until the owner publishes the repo.
+- Private repositories are not supported by the button.
 - Limitations: GitHub/GitLab only; Workers only, not Pages; monorepos need each app isolated in a subdirectory.
 
 ## Configuration (`[vars]` in `wrangler.toml`)

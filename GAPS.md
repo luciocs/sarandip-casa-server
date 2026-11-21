@@ -14,7 +14,7 @@ Internal notes for this package. Not required in a public README. Status after t
 8. **Como a rotina guarda o `REPLY_SECRET`.** Documentado que o valor nunca vai no texto. **Pendência:** confirmar o mecanismo suportado no Grok Bot para uma *routine* guardar o segredo sem pô-lo nas instruções. Não foi inventado um mecanismo.
 9. **`GET /v1/devices/status`.** Autenticado por token do aparelho ou por `ADMIN_TOKEN` + `device_id`. `online` = WS com `hello`.
 10. **`wrangler.example.toml`.** Neutro, sem `account_id`, sem URL pessoal, `name` `sarandip-casa`, `ELEVENLABS_VOICE_ID` vazio, `PUBLIC_BASE_URL` vazio (derivado da origem). `wrangler.toml` no `.gitignore`.
-11. **Botão Deploy to Cloudflare.** No README, URL placeholder `https://github.com/OWNER/REPO` claramente marcada. Verificação da documentação oficial (20/11/2026) listada no README, inclusive a pendência de expor um `wrangler.toml` no repo público para o botão.
+11. **Botão Deploy to Cloudflare.** O README aponta para o repositório público `https://github.com/luciocs/sarandip-casa-server`. `wrangler.toml` continua no `.gitignore` (sem cópia neutra no repo), então o botão pode não ler `wrangler.example.toml` automaticamente; o caminho suportado é o setup manual ou o agente.
 12. **Documentação.** `PROTOCOL.md` e `README.md` em inglês e generalizados. Protocolo `sarandip-ws-1`, com `luva-ws-1` aceito no `hello`. `AGENT.md` atualizado.
 13. **Testes.** Pareamento, TZ, `MEMORY_ENABLED`, rotação dupla do `REPLY_SECRET`, status, token não impresso, conectores openai/anthropic, webhook 2xx.
 
@@ -33,7 +33,7 @@ Pendente: medição de heap e teste na placa real (sem flash sem o Lucio).
 - [x] Sem "Iron Man" no código/docs deste pacote. O nome do repo de memória de exemplo permanece como padrão configurável (o conteúdo Marvel/Tony Stark não está neste pacote).
 - [x] Nomes genéricos no código (`dev_home01`, `sarandip-casa`). "luva" só como exemplo de aparelho, ou como alias legado do protocolo (`luva-ws-1`) documentado.
 - [x] SPDX AGPL-3.0-only no server; Apache-2.0 em `PROTOCOL.md`. `NOTICE` e CLA (`docs/CLA.md`) prontos. Scanner no CI (gitleaks).
-- [ ] Botão Deploy: decidir se no repo público entra uma cópia neutra de `wrangler.toml` (ver README).
+- [x] Botão Deploy: decidido não versionar `wrangler.toml` (fica no `.gitignore`). O botão aponta para `luciocs/sarandip-casa-server`; setup manual ou agente usam `wrangler.example.toml`.
 - [x] `luciocs/jarvis-memory-demo` tornado público pelo Lucio (20/11/2026). Teste real sem token incluído.
 - [ ] Confirmar como a rotina do Grok Bot recebe o `REPLY_SECRET` sem texto.
 - [ ] Mecanismo de assinatura do CLA (bot) depois que o repo for público.
