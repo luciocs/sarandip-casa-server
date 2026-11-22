@@ -11,14 +11,17 @@ keeps only what the server operator (or the owner's agent) needs, and must not c
   **open** Wi-Fi network **`Sarandip-Setup`** (no password, by design) and a setup page at
   `http://192.168.4.1`. The microphone is off during setup.
 - The owner enters the home Wi-Fi (2.4 GHz), its password, the **device code** printed on the card (checked by
-  the device itself; firmware 0.1.3+) or a server-issued **pairing code** on a device without its own code, and,
+  the device itself, before any network; firmware 0.1.3+, including 0.1.6) or a server-issued **pairing code**
+  on a device without its own code, and,
   if not prefilled by the firmware build, the server URL (`https://...`). With a device code the device then
   claims the server the owner typed (no code to issue; `CLAIM_MODE` / `CLAIM_DEVICE_IDS`, `PROTOCOL.md` §2.2).
 - **Reopen setup:** flip the case mute switch **5 times within about 5 seconds** (ring blinks blue), then
   leave it alone for 3 seconds. Alternative: hold BOOT (inside the case) for about 10 seconds and release.
 - **Factory reset:** flip the mute switch **10 times within about 10 seconds** (ring turns red), then leave it
   alone for 3 seconds. Alternative: hold BOOT for about **25 seconds** (ring blinks red) and release.
-  An 11th flip cancels. The mute switch always keeps muting (closed = muted).
+  An 11th flip cancels. The mute switch always keeps muting (closed = muted). From firmware **0.1.6** these
+  gestures also work while the setup portal is already open (the ring still blinks red when factory reset is
+  armed, or blue when setup is armed).
 - Wake word: the public firmware default is **"Hey Jarvis"** (`hey_jarvis`); `okay_nabu` and `hey_mycroft`
   are build-time alternatives. Set `WAKE_WORD` / `WAKE_DISPLAY`
   to the model of the owner's firmware build.
