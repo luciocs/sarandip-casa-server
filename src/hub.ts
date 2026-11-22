@@ -20,6 +20,8 @@ export const WS_FRAME_BYTES = 8192; // 256 ms of PCM16 16 kHz; device cap TTS_BI
 export const WS_MAX_IN = 64 * 1024; // control JSON from the device is < 1 KB
 const HISTORY_KEEP = 8;
 export const RETRY_DELAYS_MS = [10_000, 20_000, 30_000]; // after tts_dropped busy_turn
+/** Welcome sends per pairing that may go unconfirmed (no tts_played) before we stop re-arming it. */
+export const WELCOME_MAX_TRIES = 3;
 
 interface Attach {
   deviceId: string;
@@ -91,6 +93,7 @@ export class DeviceHub extends DurableObject<Env> {
       // Hello stays backward compatible: protocol is optional. The current name is
       // advertised here; the legacy alias is still accepted if a client sends it.
       this.send(ws, { v: 1, type: "hello_ack", session_id: crypto.randomUUID(), filter_version: "casa-1", server: "sarandip-casa/0.1", protocol: "sarandip-ws-1", reply_audio: "pcm_s16le_16000" });
+      this.rearmUnconfirmedWelcome();
       await this.scheduleWelcome();
       return;
     }
@@ -229,13 +232,52 @@ export class DeviceHub extends DurableObject<Env> {
     this.sql.exec("INSERT OR REPLACE INTO kv(k, v) VALUES ('welcome', ?)", v);
   }
 
-  /** Called by the Worker right after a successful pairing (or by the admin re-arm route). */
-  async armWelcome(): Promise<{ armed: boolean; online: boolean }> {
-    if (welcomeMode(this.env) === "off") return { armed: false, online: !!this.socket() };
+  private welcomeTries(): number {
+    const r = this.sql.exec("SELECT v FROM kv WHERE k = 'welcome_tries'").toArray()[0];
+    return r ? Number(r.v) || 0 : 0;
+  }
+
+  private setWelcomeTries(n: number): void {
+    this.sql.exec("INSERT OR REPLACE INTO kv(k, v) VALUES ('welcome_tries', ?)", String(n));
+  }
+
+  /**
+   * Called by the Worker right after a successful pairing (fromPairing) or by the admin re-arm route.
+   *
+   * A pairing happens while the device sits in its setup portal, so it cannot have a live socket here.
+   * Any socket the hub still holds is a leftover from before the reset/re-flash that the edge has not
+   * noticed yet (half-open TCP). Sending the welcome into it marks it "delivered" and the real first
+   * connection then gets nothing, so on pairing those sockets are closed and the welcome waits for the
+   * device's next hello.
+   */
+  async armWelcome(opts: { fromPairing?: boolean } = {}): Promise<{ armed: boolean; online: boolean }> {
+    if (opts.fromPairing) {
+      for (const ws of this.ctx.getWebSockets()) {
+        try { ws.close(4000, "re-paired"); } catch { /* already closed */ }
+      }
+    }
+    if (welcomeMode(this.env) === "off") return { armed: false, online: !opts.fromPairing && !!this.socket() };
     this.setWelcomeState("armed");
+    this.setWelcomeTries(0);
+    if (opts.fromPairing) return { armed: true, online: false };
     const online = !!this.socket();
     if (online) await this.scheduleWelcome();
     return { armed: true, online };
+  }
+
+  /**
+   * On a new hello: a welcome that was sent but never confirmed (no tts_played / tts_dropped, e.g. it went
+   * into a socket that was already dead) is armed again, up to WELCOME_MAX_TRIES sends per pairing.
+   */
+  private rearmUnconfirmedWelcome(): void {
+    const st = this.welcomeState();
+    if (!st.startsWith("sent:") || welcomeMode(this.env) === "off") return;
+    const turnId = st.slice(5);
+    const row = this.sql.exec("SELECT status FROM turns WHERE turn_id = ?", turnId).toArray()[0];
+    if (row && row.status !== "delivered") return; // played, retry or dropped are handled elsewhere
+    if (this.welcomeTries() >= WELCOME_MAX_TRIES) { this.setWelcomeState(`done:${turnId}`); return; }
+    if (row) this.sql.exec("UPDATE turns SET status='dropped', result='no_ack' WHERE turn_id=?", turnId);
+    this.setWelcomeState("armed");
   }
 
   async welcomeInfo(): Promise<{ state: string; mode: string }> {
@@ -264,7 +306,11 @@ export class DeviceHub extends DurableObject<Env> {
     const turnId = `t_${hex}`;
     this.sql.exec("INSERT INTO turns(turn_id, created_ms, text, kind) VALUES (?, ?, '', 'welcome')", turnId, Date.now());
     const r = await this.push(turnId, () => this.welcomeStream());
-    if (r.status === "delivered") this.setWelcomeState(`done:${turnId}`);
+    if (r.status === "delivered") {
+      // Sent, not yet confirmed: tts_played makes it done; no answer re-arms it on the next hello.
+      this.setWelcomeState(`sent:${turnId}`);
+      this.setWelcomeTries(this.welcomeTries() + 1);
+    }
     else this.sql.exec("DELETE FROM turns WHERE turn_id = ? AND status = 'pending'", turnId);
     return r.status;
   }
@@ -334,9 +380,11 @@ export class DeviceHub extends DurableObject<Env> {
   }
 
   private async onDeviceResult(type: string, turnId: string, why: string): Promise<void> {
-    const row = this.sql.exec("SELECT created_ms, status, attempts FROM turns WHERE turn_id = ?", turnId).toArray()[0];
+    const row = this.sql.exec("SELECT created_ms, status, attempts, kind FROM turns WHERE turn_id = ?", turnId).toArray()[0];
     if (!row || row.status !== "delivered") return;
+    const isWelcome = row.kind === "welcome";
     if (type === "tts_played") {
+      if (isWelcome && this.welcomeState().startsWith("sent:")) this.setWelcomeState(`done:${turnId}`);
       // Played (done/button/muted/timeout): final. The reply text is no longer needed.
       this.sql.exec("UPDATE turns SET status='played', played_ms=?, result=?, reply_text=NULL WHERE turn_id=?", Date.now(), why.slice(0, 20), turnId);
       return;
@@ -352,6 +400,10 @@ export class DeviceHub extends DurableObject<Env> {
     }
     // muted, format, or out of attempts/TTL: give up.
     this.sql.exec("UPDATE turns SET status='dropped', result=?, reply_text=NULL WHERE turn_id=?", why.slice(0, 20), turnId);
+    // A dropped welcome (e.g. muted on the device) is armed again for the next hello / unmute, within the cap.
+    if (isWelcome && this.welcomeState() === `sent:${turnId}`) {
+      this.setWelcomeState(this.welcomeTries() < WELCOME_MAX_TRIES ? "armed" : `done:${turnId}`);
+    }
   }
 
   /** Resends replies the device dropped because it was busy with a turn. */

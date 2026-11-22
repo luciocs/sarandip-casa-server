@@ -113,7 +113,8 @@ async function pairDevice(req: Request, env: Env, origin: string): Promise<Respo
     return json({ error: r.error }, status, extra);
   }
   // Welcome audio on the first WebSocket session after this pairing. Never blocks pairing.
-  try { await hub(env, r.device_id).armWelcome(); } catch { /* best effort */ }
+  // fromPairing also closes any socket left over from before the reset (it would swallow the welcome).
+  try { await hub(env, r.device_id).armWelcome({ fromPairing: true }); } catch { /* best effort */ }
   const base = publicBase(env.PUBLIC_BASE_URL, origin);
   return json({
     device_id: r.device_id,

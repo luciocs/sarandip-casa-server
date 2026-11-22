@@ -165,4 +165,67 @@ describe("welcome on first connection after pairing", () => {
     expect(Object.keys(info)).not.toContain("pcm");
     expect((await (await call("/v1/admin/welcome-audio", { method: "DELETE", headers: { authorization: `Bearer ${ADMIN}` } })).json())).toEqual({ deleted: true });
   });
+
+  it("re-pairing closes a leftover socket instead of sending the welcome into it (welcome lost after a reset)", async () => {
+    const id = "dev_welcome_stale";
+    const token1 = await pairNew(id);
+    const first = await connect(token1, id);
+    const w1 = await welcomeOn(id, first.rx);
+    first.ws.send(JSON.stringify({ v: 1, type: "tts_played", stream: w1.start.stream, turn_id: w1.start.turn_id, played_ms: 900, result: "done" }));
+    await waitFor(async () => (await hubFor(id).welcomeInfo()).state.startsWith("done:") || undefined);
+
+    // Factory reset + setup portal: the old socket is never closed by the device (half-open on the edge).
+    const closed = new Promise<number>((r) => first.ws.addEventListener("close", (e: CloseEvent) => r(e.code)));
+    const startsBefore = first.rx.texts.filter((t) => t.type === "tts_start").length;
+    const token2 = await pairNew(id);
+    expect(await closed).toBe(4000);
+    expect((await hubFor(id).welcomeInfo()).state).toBe("armed");
+    expect((await hubFor(id).status()).online).toBe(false);
+    await new Promise((r) => setTimeout(r, 30));
+    await runDurableObjectAlarm(hubFor(id));
+    expect(first.rx.texts.filter((t) => t.type === "tts_start").length).toBe(startsBefore);
+
+    // The device's real first connection after setup gets the welcome.
+    const second = await connect(token2, id);
+    const w2 = await welcomeOn(id, second.rx);
+    expect(w2.bytes).toBeGreaterThan(0);
+    expect(w2.start.turn_id).not.toBe(w1.start.turn_id);
+    second.ws.send(JSON.stringify({ v: 1, type: "tts_played", stream: w2.start.stream, turn_id: w2.start.turn_id, played_ms: 900, result: "done" }));
+    await waitFor(async () => (await hubFor(id).welcomeInfo()).state === `done:${w2.start.turn_id}` || undefined);
+    second.ws.close(1000, "done");
+  });
+
+  it("an unconfirmed welcome is sent again on the next hello, at most 3 times per pairing", async () => {
+    const id = "dev_welcome_noack";
+    const token = await pairNew(id);
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const c = await connect(token, id);
+      await new Promise((r) => setTimeout(r, 20));
+      await runDurableObjectAlarm(hubFor(id));
+      await new Promise((r) => setTimeout(r, 50));
+      await Promise.all(c.rx.pending);
+      const st = c.rx.texts.find((t) => t.type === "tts_start");
+      if (st) {
+        await waitFor(() => c.rx.texts.find((t) => t.type === "tts_end"));
+        ids.push(String(st.turn_id));
+      }
+      c.ws.close(1000, "no ack"); // never sends tts_played
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(ids.length).toBe(3);
+    expect(new Set(ids).size).toBe(3);
+    expect((await hubFor(id).turnInfo(ids[0]))).toMatchObject({ status: "dropped", result: "no_ack" });
+    expect((await hubFor(id).welcomeInfo()).state).toBe(`done:${ids[2]}`);
+  });
+
+  it("a welcome dropped as muted by the device is armed again", async () => {
+    const id = "dev_welcome_dropmuted";
+    const token = await pairNew(id);
+    const { ws, rx } = await connect(token, id);
+    const w = await welcomeOn(id, rx);
+    ws.send(JSON.stringify({ v: 1, type: "tts_dropped", stream: w.start.stream, turn_id: w.start.turn_id, reason: "muted" }));
+    await waitFor(async () => (await hubFor(id).welcomeInfo()).state === "armed" || undefined);
+    ws.close(1000, "done");
+  });
 });
