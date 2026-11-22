@@ -3,7 +3,7 @@
 
 Wire contract between a Sarandip Casa device (ESP32-S3 firmware) and this Cloudflare Worker + Durable Object voice server.
 
-The **pairing contract in §2 is frozen**. Do not change it without coordinating with the firmware. The tests in `test/` and `tools/smoke-device.mjs` use the bytes described here.
+The **pairing contract in §2 is frozen**. Do not change it without coordinating with the firmware. The optional `claim` / `device_secret` request fields and the `403 claim_closed` answer (§2.2, on-device claim codes, firmware 0.1.3+) were added together with the firmware; requests without them behave exactly as before. The tests in `test/` and `tools/smoke-device.mjs` use the bytes described here.
 
 The previous protocol name `luva-ws-1` is a compatibility alias: a device `hello` is accepted with no `protocol` field, with `sarandip-ws-1`, or with that legacy name. `GET /bloco/config` and `hello_ack` advertise `sarandip-ws-1`.
 
@@ -90,6 +90,28 @@ Request:
 - `pairing_code` (required)
 - `device_id` (required), `^[A-Za-z0-9_-]{1,64}$`
 - `fw_version` (optional string, stored truncated to 40 characters)
+- `claim` (optional, additive): `"device"` means the device's setup page checked `pairing_code` against the code
+  stored on the device (firmware 0.1.3+, code printed on the device's card).
+- `device_secret` (optional, additive, with `claim`): 32-128 printable ASCII characters (the firmware sends 64 hex)
+  that the device generated and keeps; never shown to the owner.
+
+**Device claim (on-device code).** When `pairing_code` matches an admin-issued code, pairing works exactly as
+before and `claim` / `device_secret` are ignored. Otherwise:
+
+- if this `device_id` was claimed before, the code must match the stored PBKDF2-SHA256 verifier (100,000
+  iterations, random salt, over `device_id:code`) and, when a device secret was stored, SHA-256(`device_secret`)
+  must match too. Any mismatch is `404 unknown_code`;
+- if not, and `claim` is `"device"`, the server enrolls the device (trust on first use) when the policy allows:
+  - `CLAIM_MODE = "first"` (default): only while the registry has no paired device and no claim;
+  - `CLAIM_MODE = "open"`: any `device_id` not already paired;
+  - `CLAIM_MODE = "off"`: never;
+  - `CLAIM_DEVICE_IDS` (comma-separated): when set, only listed ids may claim, also after the first device
+    (`"off"` still wins);
+  - a `device_id` that is already paired through an admin code is never claimed;
+  - refused: `403 claim_closed`.
+- The raw code and device secret are never stored. `GET /v1/admin/claims` (admin) lists claimed ids with
+  timestamps; `DELETE /v1/admin/claims` `{"device_id"}` forgets a claim (`200 {forgotten:true}` or `404`; the
+  current token stays valid until revoked).
 
 `200` response (the raw token appears **only** here):
 
@@ -113,7 +135,8 @@ Errors:
 | Status | `error` | When |
 |---|---|---|
 | `400` | `bad_request` / `bad_json` | missing or invalid fields |
-| `404` | `unknown_code` | the code does not exist |
+| `404` | `unknown_code` | the code does not exist (or a claimed device's code / device secret does not match) |
+| `403` | `claim_closed` | device claim refused by `CLAIM_MODE` / `CLAIM_DEVICE_IDS` |
 | `410` | `expired` | the code is past its ttl |
 | `410` | `used` | the code was already consumed |
 | `429` | `rate_limited` | too many attempts; `Retry-After` (seconds) |

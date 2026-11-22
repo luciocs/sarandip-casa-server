@@ -67,6 +67,12 @@ ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 ANTHROPIC_MODEL = "claude-sonnet-4-5"
 PAIR_RATE_MAX = "10"
 PAIR_RATE_WINDOW_S = "300"
+# Devices with a code stored on the device (checked by its own setup page) enroll themselves on first pairing.
+# "first" = only while the server has no device yet; "open" = any new device id; "off" = admin codes only.
+# CLAIM_DEVICE_IDS (comma-separated, e.g. "sc-0123456789ab") limits claims to those ids. Recommended: set it
+# to your device id (shown on the device's setup page) so nobody else can claim your server first.
+CLAIM_MODE = "first"
+CLAIM_DEVICE_IDS = ""
 # Welcome audio, played once on the first connection after a (re)pairing.
 # "tts" speaks WELCOME_TEXT (empty = default line for LANGUAGE);
 # "audio" plays the owner's clip uploaded with PUT /v1/admin/welcome-audio

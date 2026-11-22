@@ -36,6 +36,8 @@ export default defineConfig({
           ADMIN_TOKEN: "admin-token-for-tests-only-0001",
           PAIR_RATE_MAX: "10",
           PAIR_RATE_WINDOW_S: "300",
+          // On-device claim: only this test id may claim the shared test registry (keeps other tests deterministic).
+          CLAIM_DEVICE_IDS: "sc-c1a100000001",
           // "audio" exercises both paths: the uploaded clip and the spoken fallback.
           WELCOME_MODE: "audio",
           WELCOME_DELAY_MS: "300",

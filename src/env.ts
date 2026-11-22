@@ -49,6 +49,8 @@ export interface Env {
   ANTHROPIC_MODEL: string;
   PAIR_RATE_MAX: string;
   PAIR_RATE_WINDOW_S: string;
+  CLAIM_MODE?: string;
+  CLAIM_DEVICE_IDS?: string;
   WELCOME_MODE?: string;
   WELCOME_TEXT?: string;
   WELCOME_AUDIO_URL?: string;

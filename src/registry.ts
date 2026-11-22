@@ -5,14 +5,61 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
 import { num } from "./env";
-import { bytesToHex, sha256 } from "./auth";
+import { bytesToHex, hexToBytes, safeEqual, sha256 } from "./auth";
 
 export const PAIR_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 export const DEFAULT_TTL_S = 600;
 export const MIN_TTL_S = 60;
 export const MAX_TTL_S = 3600;
 
-export type PairError = "unknown_code" | "expired" | "used" | "rate_limited" | "bad_request";
+export type PairError = "unknown_code" | "expired" | "used" | "rate_limited" | "bad_request" | "claim_closed";
+
+/**
+ * Device claim (on-device code). The device's setup portal checks the code that ships with the device locally, so
+ * the person configuring it holds the device and its card. The device then sends that code with `claim: "device"`.
+ * A server that has no code for it may enroll the device on first use (trust on first use) and keep only a salted
+ * PBKDF2 verifier of `device_id:code`; later re-pairs of that device (after a factory reset) must present the same
+ * code. The device also sends `device_secret`, a random value it generated and keeps in NVS (never shown, survives
+ * a factory reset); its SHA-256 is stored at the first claim and must match on re-pairs, so someone who only knows
+ * the printed code (for example by reading the card or sniffing the open setup network) cannot re-pair that device
+ * id from another machine. Policy, from Worker vars:
+ *   mode "first" (default): a claim is accepted only while the server has no paired device and no claim yet;
+ *   mode "open": any device id that is not already paired may claim once;
+ *   mode "off": no claims (admin-issued codes only).
+ *   allow: CLAIM_DEVICE_IDS. When set, only those ids may claim, and a listed id may claim even after the first
+ *   device ("first" no longer closes enrollment for listed ids). "off" still wins.
+ */
+export interface ClaimPolicy {
+  mode: "first" | "open" | "off";
+  allow: string[];
+}
+
+export function claimPolicy(env: Pick<Env, "CLAIM_MODE" | "CLAIM_DEVICE_IDS">): ClaimPolicy {
+  const m = (env.CLAIM_MODE ?? "").trim().toLowerCase();
+  const mode = m === "open" || m === "off" ? m : "first";
+  const allow = (env.CLAIM_DEVICE_IDS ?? "")
+    .split(/[\s,]+/)
+    .map((x) => x.trim())
+    .filter((x) => /^[A-Za-z0-9_-]{1,64}$/.test(x));
+  return { mode, allow };
+}
+
+/** May a new device id claim this server? `enrolled` = the server already has a paired device or a claim. */
+export function claimAllowed(p: ClaimPolicy, deviceId: string, enrolled: boolean): boolean {
+  if (p.mode === "off") return false;
+  if (p.allow.length) return p.allow.includes(deviceId);
+  if (p.mode === "open") return true;
+  return !enrolled;
+}
+
+export const CLAIM_PBKDF2_ITERATIONS = 100_000;   // Workers' PBKDF2 maximum
+
+async function claimVerifier(deviceId: string, normCode: string, saltHex: string, iterations: number): Promise<Uint8Array> {
+  const salt = new Uint8Array(saltHex.match(/../g)!.map((h) => parseInt(h, 16)));
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(`${deviceId}:${normCode}`), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, 256);
+  return new Uint8Array(bits);
+}
 
 export interface PairOk {
   ok: true;
@@ -74,6 +121,10 @@ export class DeviceRegistry extends DurableObject<Env> {
       consumed_ms INTEGER, device_id TEXT)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS devices(
       device_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, fw_version TEXT, paired_ms INTEGER NOT NULL)`);
+    // On-device claim codes: only a salted PBKDF2 verifier of device_id:code, never the code.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS device_claims(
+      device_id TEXT PRIMARY KEY, verifier TEXT NOT NULL, salt TEXT NOT NULL, iterations INTEGER NOT NULL,
+      secret_hash TEXT, created_ms INTEGER NOT NULL, last_ms INTEGER NOT NULL)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS rate_limits(
       k TEXT PRIMARY KEY, window_start_ms INTEGER NOT NULL, n INTEGER NOT NULL)`);
     // Owner's welcome clip (PCM16 mono 16 kHz, no header). Private: never served back.
@@ -171,7 +222,11 @@ export class DeviceRegistry extends DurableObject<Env> {
     return { revoked: true, device_id: String(row.device_id) };
   }
 
-  async pair(rawCode: string, deviceId: string, fwVersion: string, rateKey: string): Promise<PairOk | PairFail> {
+  /**
+   * `claim` = the device says it checked this code itself (on-device claim code). Without it, or when the server
+   * already knows the code, the admin-issued code flow below runs unchanged.
+   */
+  async pair(rawCode: string, deviceId: string, fwVersion: string, rateKey: string, claim = false, policy?: ClaimPolicy, deviceSecret = ""): Promise<PairOk | PairFail> {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) return { ok: false, error: "bad_request" };
     const limited = this.hitRate(rateKey);
     if (limited) return { ok: false, error: "rate_limited", retry_after_s: limited };
@@ -179,7 +234,7 @@ export class DeviceRegistry extends DurableObject<Env> {
     if (!code) return { ok: false, error: "bad_request" };
     const now = Date.now();
     const row = this.sql.exec("SELECT expires_ms, consumed_ms, device_id, permanent FROM pairing_codes WHERE code = ?", code).toArray()[0];
-    if (!row) return { ok: false, error: "unknown_code" };
+    if (!row) return this.pairByClaim(code, deviceId, fwVersion, claim, policy ?? claimPolicy(this.env), now, deviceSecret);
     const permanent = Number(row.permanent) === 1;
     if (permanent) {
       // Bound to one device_id. A mismatch looks like an unknown code so the binding is not leaked.
@@ -200,11 +255,63 @@ export class DeviceRegistry extends DurableObject<Env> {
         return { ok: false, error: "expired" };
       }
     }
+    this.storeDevice(deviceId, hash, fwVersion, now);
+    return { ok: true, device_id: deviceId, token };
+  }
+
+  private storeDevice(deviceId: string, hash: string, fwVersion: string, now: number): void {
     this.sql.exec(
       "INSERT INTO devices(device_id, token_hash, fw_version, paired_ms) VALUES (?, ?, ?, ?) ON CONFLICT(device_id) DO UPDATE SET token_hash = excluded.token_hash, fw_version = excluded.fw_version, paired_ms = excluded.paired_ms",
       deviceId, hash, fwVersion.slice(0, 40), now,
     );
+  }
+
+  /** Unknown admin code: try the device's own claim code (re-pair with the stored verifier, or first claim). */
+  private async pairByClaim(code: string, deviceId: string, fwVersion: string, claim: boolean, policy: ClaimPolicy, now: number, deviceSecret: string): Promise<PairOk | PairFail> {
+    const secret = /^[\x21-\x7e]{32,128}$/.test(deviceSecret) ? deviceSecret : "";
+    const c = this.sql.exec("SELECT verifier, salt, iterations, secret_hash FROM device_claims WHERE device_id = ?", deviceId).toArray()[0];
+    if (c) {
+      // Re-pair of a claimed device (e.g. after a factory reset): the same code (and, when one was stored at the
+      // first claim, the same device secret) must match. Any mismatch looks like an unknown code.
+      const want = hexToBytes(String(c.verifier));
+      const got = await claimVerifier(deviceId, code, String(c.salt), Number(c.iterations));
+      let ok = !!want && safeEqual(want, got);
+      if (c.secret_hash != null) {
+        const sh = hexToBytes(String(c.secret_hash));
+        ok = ok && !!secret && !!sh && safeEqual(sh, await sha256(secret));
+      }
+      if (!ok) return { ok: false, error: "unknown_code" };
+      this.sql.exec("UPDATE device_claims SET last_ms = ? WHERE device_id = ?", now, deviceId);
+    } else {
+      if (!claim) return { ok: false, error: "unknown_code" };
+      // Never take over a device id that is already paired through an admin code.
+      if (this.sql.exec("SELECT 1 AS n FROM devices WHERE device_id = ?", deviceId).toArray()[0]) return { ok: false, error: "unknown_code" };
+      const enrolled = !!(this.sql.exec("SELECT 1 AS n FROM devices LIMIT 1").toArray()[0] || this.sql.exec("SELECT 1 AS n FROM device_claims LIMIT 1").toArray()[0]);
+      if (!claimAllowed(policy, deviceId, enrolled)) return { ok: false, error: "claim_closed" };
+      const saltB = new Uint8Array(16);
+      crypto.getRandomValues(saltB);
+      const salt = bytesToHex(saltB);
+      const v = await claimVerifier(deviceId, code, salt, CLAIM_PBKDF2_ITERATIONS);
+      this.sql.exec(
+        "INSERT INTO device_claims(device_id, verifier, salt, iterations, secret_hash, created_ms, last_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        deviceId, bytesToHex(v), salt, CLAIM_PBKDF2_ITERATIONS, secret ? bytesToHex(await sha256(secret)) : null, now, now,
+      );
+    }
+    const token = randomToken();
+    this.storeDevice(deviceId, bytesToHex(await sha256(token)), fwVersion, now);
     return { ok: true, device_id: deviceId, token };
+  }
+
+  /** Forget a device's claim so it can claim again (with any code) where the policy allows. Token is kept. */
+  async forgetClaim(deviceId: string): Promise<boolean> {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) return false;
+    this.sql.exec("DELETE FROM device_claims WHERE device_id = ?", deviceId);
+    return ((this.sql.exec("SELECT changes() AS n").toArray()[0]?.n as number) ?? 0) > 0;
+  }
+
+  async claimInfo(): Promise<{ claims: { device_id: string; created_at: string; last_at: string }[] }> {
+    const rows = this.sql.exec("SELECT device_id, created_ms, last_ms FROM device_claims ORDER BY created_ms").toArray();
+    return { claims: rows.map((r) => ({ device_id: String(r.device_id), created_at: new Date(r.created_ms as number).toISOString(), last_at: new Date(r.last_ms as number).toISOString() })) };
   }
 
   /** Look up a device by the hex SHA-256 of its token. Optional claimed device id must match. */

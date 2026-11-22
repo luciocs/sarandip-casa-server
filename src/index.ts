@@ -7,7 +7,7 @@ import { handleTurn } from "./turn";
 import { hub } from "./hubref";
 import { registry } from "./registryref";
 import { memoryConfigured } from "./memory";
-import { clampTtl, clientKey } from "./registry";
+import { clampTtl, claimPolicy, clientKey } from "./registry";
 import { PROTOCOL, publicBase, wsUrl } from "./config";
 import { resolveTz } from "./clock";
 import { WELCOME_MAX_BYTES, WelcomeError, welcomePcmFrom } from "./welcome";
@@ -96,15 +96,18 @@ async function issuePairingCode(req: Request, env: Env): Promise<Response> {
 
 async function pairDevice(req: Request, env: Env, origin: string): Promise<Response> {
   if (req.method !== "POST") return json({ error: "method" }, 405);
-  let b: { pairing_code?: unknown; device_id?: unknown; fw_version?: unknown };
+  let b: { pairing_code?: unknown; device_id?: unknown; fw_version?: unknown; claim?: unknown; device_secret?: unknown };
   try { b = await req.json(); } catch { return json({ error: "bad_json" }, 400); }
   const pairingCode = typeof b.pairing_code === "string" ? b.pairing_code : "";
   const deviceId = typeof b.device_id === "string" ? b.device_id : "";
   const fw = typeof b.fw_version === "string" ? b.fw_version : "";
+  // Additive: "device" = the device's setup page checked this code against the code stored on the device.
+  const claim = b.claim === "device";
+  const deviceSecret = typeof b.device_secret === "string" ? b.device_secret : "";
   if (!pairingCode || !deviceId) return json({ error: "bad_request" }, 400);
-  const r = await registry(env).pair(pairingCode, deviceId, fw, clientKey(req));
+  const r = await registry(env).pair(pairingCode, deviceId, fw, clientKey(req), claim, claimPolicy(env), deviceSecret);
   if (!r.ok) {
-    const status = r.error === "unknown_code" ? 404 : r.error === "rate_limited" ? 429 : r.error === "bad_request" ? 400 : 410;
+    const status = r.error === "unknown_code" ? 404 : r.error === "rate_limited" ? 429 : r.error === "bad_request" ? 400 : r.error === "claim_closed" ? 403 : 410;
     const extra: Record<string, string> = {};
     if (r.retry_after_s) extra["retry-after"] = String(r.retry_after_s);
     return json({ error: r.error }, status, extra);
@@ -119,6 +122,19 @@ async function pairDevice(req: Request, env: Env, origin: string): Promise<Respo
     ws_url: wsUrl(base),
     tz: resolveTz(env.TZ),
   });
+}
+
+/** On-device claims: GET lists claimed device ids; DELETE {device_id} forgets one (its token stays valid). */
+async function claimsAdmin(req: Request, env: Env): Promise<Response> {
+  if (!(await authAdmin(req, env))) return json({ error: "unauthorized" }, 401);
+  if (req.method === "GET") return json(await registry(env).claimInfo());
+  if (req.method !== "DELETE") return json({ error: "method" }, 405);
+  let b: { device_id?: unknown };
+  try { b = await req.json(); } catch { return json({ error: "bad_json" }, 400); }
+  const deviceId = typeof b.device_id === "string" ? b.device_id : "";
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) return json({ error: "bad_request" }, 400);
+  const ok = await registry(env).forgetClaim(deviceId);
+  return json({ forgotten: ok, device_id: deviceId }, ok ? 200 : 404);
 }
 
 async function revokeDevice(req: Request, env: Env): Promise<Response> {
@@ -204,6 +220,7 @@ export default {
 
       if (path === "/v1/admin/pairing-codes") return issuePairingCode(req, env);
       if (path === "/v1/admin/devices/revoke") return revokeDevice(req, env);
+      if (path === "/v1/admin/claims") return claimsAdmin(req, env);
       if (path === "/v1/devices/pair") return pairDevice(req, env, url.origin);
       if (path === "/v1/devices/status") return deviceStatus(req, env);
       if (path === "/v1/admin/welcome-audio") return welcomeAudioAdmin(req, env);

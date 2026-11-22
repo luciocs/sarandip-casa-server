@@ -10,8 +10,10 @@ keeps only what the server operator (or the owner's agent) needs, and must not c
 - On first boot (or after a factory reset, or when the owner reopens setup) the device opens the
   **open** Wi-Fi network **`Sarandip-Setup`** (no password, by design) and a setup page at
   `http://192.168.4.1`. The microphone is off during setup.
-- The owner enters the home Wi-Fi (2.4 GHz), its password, the **pairing code** and, if not prefilled by the
-  firmware build, the server URL (`https://...`).
+- The owner enters the home Wi-Fi (2.4 GHz), its password, the **device code** printed on the card (checked by
+  the device itself; firmware 0.1.3+) or a server-issued **pairing code** on a device without its own code, and,
+  if not prefilled by the firmware build, the server URL (`https://...`). With a device code the device then
+  claims the server the owner typed (no code to issue; `CLAIM_MODE` / `CLAIM_DEVICE_IDS`, `PROTOCOL.md` §2.2).
 - **Reopen setup:** flip the case mute switch **5 times within about 5 seconds** (ring blinks blue), then
   leave it alone for 3 seconds. Alternative: hold BOOT (inside the case) for about 10 seconds and release.
 - **Factory reset:** flip the mute switch **10 times within about 10 seconds** (ring turns red), then leave it
@@ -25,7 +27,9 @@ keeps only what the server operator (or the owner's agent) needs, and must not c
 
 ## Server steps
 
-1. **Create a pairing code** (admin):
+0. **Device with its own code:** nothing to issue. Optionally set `CLAIM_DEVICE_IDS = "sc-…"` (the id at the top
+   of the device's setup page) so only that device can claim this server. Then go to step 2.
+1. **Create a pairing code** (admin, devices without their own code):
    `POST /v1/admin/pairing-codes` with `Authorization: Bearer <ADMIN_TOKEN>`, optional `{"ttl_s":600}`.
    The response `pairing_code` (`XXXX-XXXX`, single use, default 10 minutes) is the only thing the owner
    sees. Never show or send the device token.
@@ -36,8 +40,8 @@ keeps only what the server operator (or the owner's agent) needs, and must not c
    `{"device_id"}` or `{"pairing_code"}` revokes it.
 2. **The device pairs** with `POST /v1/devices/pair` `{pairing_code, device_id, fw_version}` and receives
    `{device_id, token, base_url, ws_url, tz}` once (`PROTOCOL.md` §2). Device ids are `sc-` + the Wi-Fi MAC
-   in hex. Errors the device shows to the owner: `404` code not found, `410` expired or used, `429` too many
-   attempts (`PAIR_RATE_MAX` / `PAIR_RATE_WINDOW_S`).
+   in hex. Errors the device shows to the owner: `404` code not found, `410` expired or used, `403` claim closed
+   (device code, server not accepting new devices), `429` too many attempts (`PAIR_RATE_MAX` / `PAIR_RATE_WINDOW_S`).
 3. **Check status:** `GET /v1/devices/status?device_id=<id>` with the admin token. `"online": true` once the
    device opened the WebSocket and sent `hello` (`protocol: "sarandip-ws-1"`).
 4. **Re-pair** (new owner, new server, or a lost token): the owner reopens setup (mute switch 5 flips, or BOOT

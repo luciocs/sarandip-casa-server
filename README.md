@@ -69,7 +69,7 @@ The agent follows [`AGENT.md`](AGENT.md). The steps are:
 4. It asks you for **only** your API keys, through a protected field and never in chat.
 5. It walks you through memory (connected by default; you may skip it) and, if you want, your agent.
 6. It runs the tests.
-7. It gives you a **pairing code** to type on the device's setup page (short-lived, or a printed claim code bound to that device).
+7. It gives you the **server URL** to type on the device's setup page, together with the code printed on the card that came with the device. The device checks that code itself and your server enrolls it the first time (see "Device code" below). Devices without their own code get a **pairing code** from the server instead.
 
 ## Manual setup
 
@@ -101,7 +101,11 @@ npx wrangler secret put ADMIN_TOKEN       # long random string; protects pairing
 curl https://<your-worker>.<your-subdomain>.workers.dev/health
 ```
 
-Then pair the device. See `docs/device-setup.md` and `PROTOCOL.md` §2. Short-lived codes (`POST /v1/admin/pairing-codes`, optional `ttl_s`) expire in 10 minutes by default. For a code that ships in the box, issue a claim code with `{"device_id":"sc-…","permanent":true}`: it never expires, works only for that device, and can be reused after a factory reset; `DELETE` or a re-issue rotates it.
+Then pair the device. See `docs/device-setup.md` and `PROTOCOL.md` §2.
+
+**Device code (no code to issue).** A device that ships with its own code (printed on its card, stored on the device) checks that code on its setup page and then sends it to the server URL the owner typed, with `"claim":"device"` and a device secret. Your server enrolls that device on first use and keeps only a salted verifier of the code and a hash of the secret; later re-pairs (after a factory reset) need the same code and secret. Who may enroll this way is set in `wrangler.toml`: `CLAIM_MODE = "first"` (default: only the first device of a fresh server), `"open"` or `"off"`, and `CLAIM_DEVICE_IDS = "sc-…"` to allow only your device id (shown at the top of the device's setup page; recommended, so nobody else can claim your server before your device does). `GET /v1/admin/claims` lists claimed devices; `DELETE /v1/admin/claims {"device_id"}` forgets one.
+
+**Server-issued codes.** For devices without their own code: short-lived codes (`POST /v1/admin/pairing-codes`, optional `ttl_s`) expire in 10 minutes by default. For a code that ships in the box, issue a claim code with `{"device_id":"sc-…","permanent":true}`: it never expires, works only for that device, and can be reused after a factory reset; `DELETE` or a re-issue rotates it.
 
 ### Deploy to Cloudflare button
 
