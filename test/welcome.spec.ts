@@ -3,7 +3,7 @@ import { exports as rawExports, env as rawEnv } from "cloudflare:workers";
 import { runDurableObjectAlarm } from "cloudflare:test";
 import type { Env } from "../src/env";
 import { describe, it, expect } from "vitest";
-import { welcomeMode, welcomeText, welcomeDelayMs, welcomePcmFrom, fetchWelcomeUrl, WelcomeError } from "../src/welcome";
+import { welcomeMode, welcomeText, welcomeDelayMs, welcomePcmFrom, fetchWelcomeUrl, WelcomeError, withSilenceTail, pcmStream, WELCOME_TAIL_MS } from "../src/welcome";
 import { pcm, wav, waitFor, ADMIN, BASE } from "./helpers";
 
 const exports = rawExports as unknown as { default: { fetch(r: Request): Promise<Response> } };
@@ -89,6 +89,30 @@ describe("welcome config", () => {
   });
 });
 
+describe("welcome silence tail", () => {
+  const collect = async (st: ReadableStream<Uint8Array>) => {
+    const parts: Uint8Array[] = [];
+    const r = st.getReader();
+    for (;;) { const { value, done } = await r.read(); if (done) break; parts.push(value); }
+    const out = new Uint8Array(parts.reduce((s, p) => s + p.byteLength, 0));
+    let o = 0; for (const p of parts) { out.set(p, o); o += p.byteLength; }
+    return out;
+  };
+  it("keeps every clip byte and appends 300 ms of silence", async () => {
+    const p = pcm(1000, undefined, 3000);
+    const out = await collect(withSilenceTail(pcmStream(p, 1000)));
+    expect(WELCOME_TAIL_MS).toBe(300);
+    expect(out.byteLength).toBe(p.byteLength + 300 * 32);
+    expect(out.subarray(0, p.byteLength)).toEqual(p);
+    expect(out.subarray(p.byteLength).every((b) => b === 0)).toBe(true);
+  });
+  it("pads an odd byte count so the tail stays sample-aligned", async () => {
+    const out = await collect(withSilenceTail(pcmStream(new Uint8Array([1, 2, 3])), 10));
+    expect(out.byteLength % 2).toBe(0);
+    expect(out.byteLength).toBe(4 + 10 * 32);
+  });
+});
+
 describe("welcome admin clip", () => {
   it("is admin only, validates format, reports metadata only", async () => {
     expect((await call("/v1/admin/welcome-audio", { method: "PUT", body: wav(pcm(300)) })).status).toBe(401);
@@ -145,12 +169,15 @@ describe("welcome on first connection after pairing", () => {
     const got = new Uint8Array(w.bytes);
     let off = 0;
     for (const b of rx.bins) { got.set(b, off); off += b.byteLength; }
-    expect(got.byteLength).toBe(clip.byteLength);
+    // The clip, then WELCOME_TAIL_MS of silence so the last word is never clipped.
+    const tail = WELCOME_TAIL_MS * 32;
+    expect(got.byteLength).toBe(clip.byteLength + tail);
+    expect(got.subarray(clip.byteLength).every((b) => b === 0)).toBe(true);
     // guardPcmFrame may nudge the first byte of a frame; everything else is byte-exact.
     let diff = 0;
     for (let i = 0; i < clip.byteLength; i++) if (got[i] !== clip[i]) diff++;
     expect(diff).toBeLessThanOrEqual(Math.ceil(clip.byteLength / 8192));
-    expect(w.end.audio_ms).toBe(700);
+    expect(w.end.audio_ms).toBe(700 + WELCOME_TAIL_MS);
 
     expect((await call("/v1/admin/devices/welcome", { method: "POST", body: JSON.stringify({ device_id: id }) })).status).toBe(401);
     const re = await call("/v1/admin/devices/welcome", { method: "POST", headers: adminH, body: JSON.stringify({ device_id: id }) });

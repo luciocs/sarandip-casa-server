@@ -20,6 +20,11 @@ export type WelcomeMode = "tts" | "audio" | "off";
 /** Largest welcome clip, PCM16 mono 16 kHz: 1 MiB is about 32 s. */
 export const WELCOME_MAX_BYTES = 1_048_576;
 export const WELCOME_DEFAULT_DELAY_MS = 2000;
+/**
+ * Silence appended after the welcome (clip or spoken line). A clip trimmed right at its last word, or a
+ * device that powers its amp down soon after the last frame, would otherwise clip the final syllable.
+ */
+export const WELCOME_TAIL_MS = 300;
 
 export function welcomeMode(env: Pick<Env, "WELCOME_MODE">): WelcomeMode {
   const s = (env.WELCOME_MODE ?? "").trim().toLowerCase();
@@ -113,7 +118,30 @@ export async function welcomeAudio(
     if (!clip) {
       try { clip = await fetchWelcomeUrl(env, fetchFn); } catch { clip = null; }
     }
-    if (clip && clip.byteLength) return pcmStream(clip);
+    if (clip && clip.byteLength) return withSilenceTail(pcmStream(clip));
   }
-  return synthesize(env, welcomeText(env), fetchFn);
+  return withSilenceTail(await synthesize(env, welcomeText(env), fetchFn));
+}
+
+/** Passes PCM16 through (keeping sample alignment) and appends `ms` of silence at 16 kHz. */
+export function withSilenceTail(body: ReadableStream<Uint8Array>, ms = WELCOME_TAIL_MS): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let odd = 0;
+  let tailSent = false;
+  return new ReadableStream<Uint8Array>({
+    async pull(c) {
+      if (tailSent) return c.close();
+      const { value, done } = await reader.read();
+      if (!done) {
+        if (value.byteLength) { odd = (odd + value.byteLength) & 1; c.enqueue(value); }
+        return;
+      }
+      // Pad an odd byte count first so the silence starts on a sample boundary.
+      const n = odd + Math.round((SR * ms) / 1000) * 2;
+      if (n > 0) c.enqueue(new Uint8Array(n));
+      tailSent = true;
+      c.close();
+    },
+    cancel(reason) { return reader.cancel(reason); },
+  });
 }
