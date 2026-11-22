@@ -24,7 +24,7 @@ By contributing, you agree your contribution is licensed under the license of th
 - **No personal data** in examples or tests. Use fictional names and `example.com`.
 - **Privacy invariants must hold.** A pull request that breaks any of the following will not be accepted:
   - no ambient listening in the home version;
-  - capture only after the wake word or the button;
+  - capture only after the wake word, the button, or a wrist pad (when fitted);
   - the mute switch always wins;
   - no audio or transcripts in logs;
   - the owner can skip memory (`MEMORY_ENABLED=false`); personal memory requires an explicit choice; the default example memory is fictional.

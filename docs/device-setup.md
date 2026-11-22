@@ -22,6 +22,9 @@ keeps only what the server operator (or the owner's agent) needs, and must not c
 - Wake word: the public firmware default is **"Hey Jarvis"** (`hey_jarvis`); `okay_nabu` and `hey_mycroft`
   are build-time alternatives. Set `WAKE_WORD` / `WAKE_DISPLAY`
   to the model of the owner's firmware build.
+- A device with a capacitive wrist pad can also start a listen with a touch (same as the button). A touch
+  while the device is speaking barges in (stops playback, then listens). While muted, a touch does nothing.
+  Owner steps: the firmware package's `docs/device-setup.md`.
 - The device token is kept in the device's NVS **without encryption**. The mitigation for a lost, stolen or
   given-away device is **revoking it on this server** (below).
 

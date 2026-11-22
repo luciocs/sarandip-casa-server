@@ -161,7 +161,7 @@ The owner-facing steps live in the firmware package: `../sarandip-casa-firmware/
 4. The page shows "Saved" (green ring, the device restarts) or a clear error: wrong code (checked by the device, with a lockout after 5 tries), wrong Wi-Fi password, network not found, no internet time, server not accepting new devices (`403 claim_closed`: fix `CLAIM_DEVICE_IDS` / `CLAIM_MODE`), code not found (`404`), code expired or used (`410`), too many attempts (`429`), server unreachable.
 5. **Verify:**
    - `GET /v1/devices/status?device_id=<id>` with `Authorization: Bearer <ADMIN_TOKEN>` returns `"online": true` once the device has opened the WebSocket and sent `hello`. The device id is `sc-` followed by the Wi-Fi MAC in hex (12 characters);
-   - the owner says "Hey Jarvis" (or the wake word of their build) and gets a spoken answer.
+   - the owner says "Hey Jarvis" (or the wake word of their build), or uses the button / wrist pad, and gets a spoken answer.
 
 Do not flash anything. If the device does not run the Sarandip Casa firmware yet, stop and tell the owner.
 
